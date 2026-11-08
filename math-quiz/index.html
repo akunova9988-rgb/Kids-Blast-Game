@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MATH QUIZ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Firebase CDN (v9 compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+<body>
+
+  <!-- ===== MATH BACKGROUND SYMBOLS ===== -->
+  <div class="math-bg" id="mathBg"></div>
+
+  <!-- ===== HOME SCREEN ===== -->
+  <div id="screen-home" class="screen active">
+    <div class="home-container">
+      <div class="home-logo">
+        <div class="logo-icon">∑</div>
+      </div>
+      <h1 class="home-title">MATH QUIZ</h1>
+      <p class="home-subtitle">Интерактивная математическая викторина</p>
+      <div class="home-cards">
+        <div class="role-card teacher-card" onclick="showTeacherLogin()">
+          <div class="role-icon">👨‍🏫</div>
+          <h2>Кабинет учителя</h2>
+          <p>Создайте викторину и управляйте учениками</p>
+          <div class="card-arrow">→</div>
+        </div>
+        <div class="role-card student-card" onclick="showStudentLogin()">
+          <div class="role-icon">🧑‍🎓</div>
+          <h2>Кабинет ученика</h2>
+          <p>Присоединитесь к викторине по коду</p>
+          <div class="card-arrow">→</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TEACHER LOGIN SCREEN ===== -->
+  <div id="screen-teacher-login" class="screen">
+    <div class="auth-card">
+      <button class="back-btn" onclick="showHome()">← Назад</button>
+      <div class="auth-icon">👨‍🏫</div>
+      <h2>Вход для учителя</h2>
+      <div class="form-group">
+        <label>Имя пользователя</label>
+        <input type="text" id="teacherUsername" placeholder="teacher" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label>Пароль</label>
+        <input type="password" id="teacherPassword" placeholder="••••••••" />
+      </div>
+      <div class="error-msg" id="teacherLoginError"></div>
+      <button class="btn btn-primary btn-full" onclick="teacherLogin()">Войти</button>
+    </div>
+  </div>
+
+  <!-- ===== TEACHER DASHBOARD ===== -->
+  <div id="screen-teacher-dashboard" class="screen">
+    <div class="dashboard-layout">
+      <aside class="sidebar">
+        <div class="sidebar-logo">
+          <span class="logo-small">∑</span>
+          <span>MATH QUIZ</span>
+        </div>
+        <nav class="sidebar-nav">
+          <button class="nav-btn active" data-tab="tab-quiz" onclick="switchTab('tab-quiz', this)">
+            <span class="nav-icon">📝</span> Викторина
+          </button>
+          <button class="nav-btn" data-tab="tab-control" onclick="switchTab('tab-control', this)">
+            <span class="nav-icon">⚙️</span> Управление
+          </button>
+          <button class="nav-btn" data-tab="tab-students" onclick="switchTab('tab-students', this)">
+            <span class="nav-icon">👥</span> Ученики
+          </button>
+          <button class="nav-btn" data-tab="tab-results" onclick="switchTab('tab-results', this)">
+            <span class="nav-icon">🏆</span> Результаты
+          </button>
+        </nav>
+        <button class="btn btn-outline sidebar-logout" onclick="teacherLogout()">Выйти</button>
+      </aside>
+
+      <main class="dashboard-main">
+        <!-- TAB: QUIZ EDITOR -->
+        <div id="tab-quiz" class="tab-content active">
+          <div class="tab-header">
+            <h2>Вопросы викторины</h2>
+            <button class="btn btn-primary" onclick="showAddQuestionForm()">+ Добавить вопрос</button>
+          </div>
+
+          <!-- Add/Edit Question Form -->
+          <div id="questionFormPanel" class="question-form-panel hidden">
+            <h3 id="questionFormTitle">Новый вопрос</h3>
+            <input type="hidden" id="editQuestionId" value="" />
+            <div class="form-group">
+              <label>Текст вопроса</label>
+              <input type="text" id="qText" placeholder="Введите вопрос..." />
+            </div>
+            <div class="options-grid">
+              <div class="form-group">
+                <label>Вариант A</label>
+                <input type="text" id="qOpt0" placeholder="Вариант A" />
+              </div>
+              <div class="form-group">
+                <label>Вариант B</label>
+                <input type="text" id="qOpt1" placeholder="Вариант B" />
+              </div>
+              <div class="form-group">
+                <label>Вариант C</label>
+                <input type="text" id="qOpt2" placeholder="Вариант C" />
+              </div>
+              <div class="form-group">
+                <label>Вариант D</label>
+                <input type="text" id="qOpt3" placeholder="Вариант D" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Правильный ответ</label>
+              <select id="qCorrect">
+                <option value="0">A</option>
+                <option value="1">B</option>
+                <option value="2">C</option>
+                <option value="3">D</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Пояснение (необязательно)</label>
+              <input type="text" id="qExplanation" placeholder="Объяснение правильного ответа..." />
+            </div>
+            <div class="form-row">
+              <button class="btn btn-primary" onclick="saveQuestion()">Сохранить</button>
+              <button class="btn btn-outline" onclick="hideQuestionForm()">Отмена</button>
+            </div>
+          </div>
+
+          <div id="questionsList" class="questions-list"></div>
+        </div>
+
+        <!-- TAB: CONTROL -->
+        <div id="tab-control" class="tab-content">
+          <div class="tab-header">
+            <h2>Управление викториной</h2>
+          </div>
+          <div class="control-cards">
+            <div class="control-card">
+              <h3>Код доступа</h3>
+              <div class="code-display">
+                <span id="currentCode" class="quiz-code-big">MATH2026</span>
+                <button class="btn btn-sm btn-outline" onclick="changeCode()">Изменить</button>
+              </div>
+              <div class="form-group" id="codeInputArea" style="display:none;">
+                <input type="text" id="newCodeInput" placeholder="Введите новый код" maxlength="12" />
+                <button class="btn btn-sm btn-primary" onclick="saveCode()">Сохранить</button>
+              </div>
+            </div>
+            <div class="control-card">
+              <h3>Статус викторины</h3>
+              <div class="status-badge-wrap">
+                <span id="quizStatusBadge" class="status-badge status-idle">Не запущена</span>
+              </div>
+              <div class="control-actions">
+                <button class="btn btn-success" onclick="startQuiz()" id="btnStartQuiz">▶ Запустить викторину</button>
+                <button class="btn btn-danger" onclick="endQuiz()" id="btnEndQuiz" disabled>■ Завершить викторину</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: STUDENTS -->
+        <div id="tab-students" class="tab-content">
+          <div class="tab-header">
+            <h2>Подключённые ученики</h2>
+            <span class="badge-count" id="studentCount">0 учеников</span>
+          </div>
+          <div id="studentsList" class="students-list">
+            <div class="empty-state">Пока никто не присоединился</div>
+          </div>
+        </div>
+
+        <!-- TAB: RESULTS -->
+        <div id="tab-results" class="tab-content">
+          <div class="tab-header">
+            <h2>Результаты — Таблица лидеров</h2>
+            <button class="btn btn-sm btn-outline" onclick="clearResults()">Очистить</button>
+          </div>
+          <div class="leaderboard-wrap">
+            <table class="leaderboard-table" id="leaderboardTable">
+              <thead>
+                <tr>
+                  <th>Место</th>
+                  <th>Имя</th>
+                  <th>Правильных</th>
+                  <th>Баллы</th>
+                  <th>Время</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboardBody">
+                <tr><td colspan="5" class="empty-row">Нет данных</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- Per-student breakdown modal -->
+          <div id="breakdownModal" class="modal hidden">
+            <div class="modal-content">
+              <button class="modal-close" onclick="closeBreakdown()">✕</button>
+              <h3 id="breakdownName"></h3>
+              <div id="breakdownContent"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ===== STUDENT LOGIN SCREEN ===== -->
+  <div id="screen-student-login" class="screen">
+    <div class="auth-card">
+      <button class="back-btn" onclick="showHome()">← Назад</button>
+      <div class="auth-icon">🧑‍🎓</div>
+      <h2>Вход для ученика</h2>
+      <div class="form-group">
+        <label>Ваше имя</label>
+        <input type="text" id="studentName" placeholder="Введите ваше имя" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label>Код викторины</label>
+        <input type="text" id="studentCode" placeholder="Например: MATH2026" autocomplete="off"
+               oninput="this.value = this.value.toUpperCase()" />
+      </div>
+      <div class="error-msg" id="studentLoginError"></div>
+      <button class="btn btn-primary btn-full" onclick="studentLogin()">Присоединиться</button>
+    </div>
+  </div>
+
+  <!-- ===== STUDENT WAITING ROOM ===== -->
+  <div id="screen-waiting" class="screen">
+    <div class="waiting-card">
+      <div class="waiting-anim">
+        <div class="spinner-ring"></div>
+        <span class="waiting-icon">📚</span>
+      </div>
+      <h2>Ожидание начала викторины...</h2>
+      <p>Добро пожаловать, <strong id="waitingName"></strong>!</p>
+      <p class="waiting-hint">Викторина начнётся, когда учитель запустит её.</p>
+      <div class="math-dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STUDENT QUIZ SCREEN ===== -->
+  <div id="screen-quiz" class="screen">
+    <div class="quiz-container">
+      <div class="quiz-header">
+        <div class="progress-info">
+          <span id="questionProgress">Вопрос 1 из 15</span>
+          <span id="studentNameBadge" class="student-badge"></span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+      </div>
+
+      <!-- Timer -->
+      <div class="timer-wrap">
+        <svg class="timer-svg" viewBox="0 0 100 100">
+          <circle class="timer-track" cx="50" cy="50" r="44" />
+          <circle class="timer-ring" id="timerRing" cx="50" cy="50" r="44" />
+        </svg>
+        <span class="timer-count" id="timerCount">30</span>
+      </div>
+
+      <div class="question-card">
+        <div class="question-num" id="questionNum">01</div>
+        <p class="question-text" id="questionText"></p>
+        <div class="options-list" id="optionsList"></div>
+        <button class="btn btn-primary btn-next hidden" id="nextBtn" onclick="nextQuestion()">
+          Следующий вопрос →
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STUDENT RESULTS SCREEN ===== -->
+  <div id="screen-results" class="screen">
+    <div class="results-container">
+      <div id="confettiCanvas"></div>
+      <div class="results-card">
+        <div class="results-trophy" id="resultsTrophy">🏆</div>
+        <h2 class="results-name" id="resultsStudentName"></h2>
+        <div class="results-grade" id="resultsGrade"></div>
+
+        <div class="results-stats">
+          <div class="stat-box correct">
+            <div class="stat-num" id="statCorrect">0</div>
+            <div class="stat-label">Правильных</div>
+          </div>
+          <div class="stat-box wrong">
+            <div class="stat-num" id="statWrong">0</div>
+            <div class="stat-label">Неправильных</div>
+          </div>
+          <div class="stat-box score">
+            <div class="stat-num" id="statScore">0</div>
+            <div class="stat-label">Баллов</div>
+          </div>
+        </div>
+
+        <div class="results-percent-wrap">
+          <div class="results-percent-bar">
+            <div class="results-percent-fill" id="resultsPercentFill"></div>
+          </div>
+          <span id="resultsPercent" class="percent-label">0%</span>
+        </div>
+
+        <button class="btn btn-primary btn-full mt-20" onclick="playAgain()">🔄 Играть снова</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
