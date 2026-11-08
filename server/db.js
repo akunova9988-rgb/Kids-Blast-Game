@@ -1,7 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { hashPassword, nowIso } from './logic.js';
+import { openStore } from './sql.js';
 
 const SETS = [
   {
@@ -84,249 +82,174 @@ const SETS = [
   },
 ];
 
-function migrate(db) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY,
-      username TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('teacher', 'student')),
-      display_name TEXT NOT NULL,
-      class_id INTEGER,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS classes (
-      id INTEGER PRIMARY KEY,
-      teacher_id INTEGER NOT NULL UNIQUE,
-      name TEXT NOT NULL,
-      join_code TEXT NOT NULL UNIQUE,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS sets (
-      id INTEGER PRIMARY KEY,
-      teacher_id INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      topic TEXT NOT NULL,
-      blurb TEXT NOT NULL DEFAULT '',
-      accent TEXT NOT NULL DEFAULT 'gold',
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS questions (
-      id INTEGER PRIMARY KEY,
-      set_id INTEGER NOT NULL,
-      kind TEXT NOT NULL CHECK (kind IN ('play', 'check')),
-      prompt TEXT NOT NULL,
-      choice_a TEXT NOT NULL,
-      choice_b TEXT NOT NULL,
-      choice_c TEXT NOT NULL,
-      choice_d TEXT NOT NULL,
-      correct_index INTEGER NOT NULL CHECK (correct_index BETWEEN 0 AND 3),
-      sort_order INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS assignments (
-      id INTEGER PRIMARY KEY,
-      class_id INTEGER NOT NULL,
-      set_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL,
-      UNIQUE (class_id, set_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS plays (
-      id INTEGER PRIMARY KEY,
-      student_id INTEGER NOT NULL,
-      assignment_id INTEGER NOT NULL,
-      status TEXT NOT NULL CHECK (status IN ('playing', 'finished', 'abandoned')),
-      score INTEGER NOT NULL DEFAULT 0,
-      stars INTEGER,
-      correct_count INTEGER NOT NULL DEFAULT 0,
-      miss_count INTEGER NOT NULL DEFAULT 0,
-      best_streak INTEGER NOT NULL DEFAULT 0,
-      streak INTEGER NOT NULL DEFAULT 0,
-      lives INTEGER NOT NULL,
-      cursor_index INTEGER NOT NULL DEFAULT 0,
-      round_size INTEGER NOT NULL,
-      created_at TEXT NOT NULL,
-      finished_at TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS play_deals (
-      play_id INTEGER NOT NULL,
-      question_id INTEGER NOT NULL,
-      kind TEXT NOT NULL CHECK (kind IN ('play', 'check')),
-      position INTEGER NOT NULL,
-      prompt TEXT NOT NULL,
-      choices_json TEXT NOT NULL,
-      correct_index INTEGER NOT NULL,
-      PRIMARY KEY (play_id, question_id, kind)
-    );
-
-    CREATE TABLE IF NOT EXISTS play_answers (
-      play_id INTEGER NOT NULL,
-      question_id INTEGER NOT NULL,
-      prompt TEXT NOT NULL,
-      choice_index INTEGER NOT NULL,
-      correct_index INTEGER NOT NULL,
-      correct INTEGER NOT NULL,
-      PRIMARY KEY (play_id, question_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS surveys (
-      id INTEGER PRIMARY KEY,
-      play_id INTEGER NOT NULL UNIQUE,
-      student_id INTEGER NOT NULL,
-      liked TEXT CHECK (liked IN ('not_much', 'okay', 'loved')),
-      difficulty TEXT CHECK (difficulty IN ('too_easy', 'just_right', 'too_hard')),
-      skipped INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS check_answers (
-      id INTEGER PRIMARY KEY,
-      play_id INTEGER NOT NULL,
-      question_id INTEGER NOT NULL,
-      prompt TEXT NOT NULL,
-      choice_index INTEGER NOT NULL,
-      correct_index INTEGER NOT NULL,
-      correct INTEGER NOT NULL,
-      UNIQUE (play_id, question_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      token TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_questions_set ON questions (set_id, kind, sort_order);
-    CREATE INDEX IF NOT EXISTS idx_plays_assignment ON plays (assignment_id, status);
-    CREATE INDEX IF NOT EXISTS idx_check_play ON check_answers (play_id);
-  `);
-}
-
-function insertQuestion(db, setId, kind, order, item) {
+async function insertQuestion(db, setId, kind, order, item) {
   const [prompt, choices, correctIndex] = item;
-  db.prepare(
-    `INSERT INTO questions (
+  await db.run(
+    `insert into questions (
       set_id, kind, prompt, choice_a, choice_b, choice_c, choice_d, correct_index, sort_order
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(setId, kind, prompt, choices[0], choices[1], choices[2], choices[3], correctIndex, order);
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    setId,
+    kind,
+    prompt,
+    choices[0],
+    choices[1],
+    choices[2],
+    choices[3],
+    correctIndex,
+    order,
+  );
 }
 
-function seed(db) {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-  if (count > 0) return;
+async function seed(db) {
+  const count = await db.get('select count(*)::int as n from users');
+  if (Number(count.n) > 0) return;
 
   const created = nowIso();
+  // Public demo class words. The sign-in screen shows these same words.
   const teacherPass = hashPassword('starlight');
   const lunaPass = hashPassword('rocket');
   const kaiPass = hashPassword('comet');
   const rioPass = hashPassword('planet');
 
-  db.exec('BEGIN');
-  try {
-    const teacherId = Number(
-      db.prepare(
-        `INSERT INTO users (username, password_hash, role, display_name, created_at)
-         VALUES ('ms-nova', ?, 'teacher', 'Ms. Nova', ?)`,
-      ).run(teacherPass, created).lastInsertRowid,
+  await db.transaction(async (tx) => {
+    const teacherId = await tx.insert(
+      `insert into users (username, password_hash, role, display_name, created_at)
+       values ('ms-nova', ?, 'teacher', 'Ms. Nova', ?)`,
+      teacherPass,
+      created,
     );
+    const classId = await tx.insert(
+      `insert into classes (teacher_id, name, join_code, created_at)
+       values (?, 'Room 2 Rockets', 'STAR2', ?)`,
+      teacherId,
+      created,
+    );
+    await tx.run('update users set class_id = ? where id = ?', classId, teacherId);
 
-    const classId = Number(
-      db.prepare(
-        `INSERT INTO classes (teacher_id, name, join_code, created_at)
-         VALUES (?, 'Room 2 Rockets', 'STAR2', ?)`,
-      ).run(teacherId, created).lastInsertRowid,
+    const lunaId = await tx.insert(
+      `insert into users (username, password_hash, role, display_name, class_id, created_at)
+       values ('luna', ?, 'student', 'Luna', ?, ?)`,
+      lunaPass,
+      classId,
+      created,
     );
-    db.prepare('UPDATE users SET class_id = ? WHERE id = ?').run(classId, teacherId);
-
-    const insertStudent = db.prepare(
-      `INSERT INTO users (username, password_hash, role, display_name, class_id, created_at)
-       VALUES (?, ?, 'student', ?, ?, ?)`,
+    const kaiId = await tx.insert(
+      `insert into users (username, password_hash, role, display_name, class_id, created_at)
+       values ('kai', ?, 'student', 'Kai', ?, ?)`,
+      kaiPass,
+      classId,
+      created,
     );
-    const lunaId = Number(insertStudent.run('luna', lunaPass, 'Luna', classId, created).lastInsertRowid);
-    const kaiId = Number(insertStudent.run('kai', kaiPass, 'Kai', classId, created).lastInsertRowid);
-    insertStudent.run('rio', rioPass, 'Rio', classId, created);
+    await tx.insert(
+      `insert into users (username, password_hash, role, display_name, class_id, created_at)
+       values ('rio', ?, 'student', 'Rio', ?, ?)`,
+      rioPass,
+      classId,
+      created,
+    );
 
     const assignmentByTitle = new Map();
     for (const set of SETS) {
-      const setId = Number(
-        db.prepare(
-          `INSERT INTO sets (teacher_id, title, topic, blurb, accent, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-        ).run(teacherId, set.title, set.topic, set.blurb, set.accent, created).lastInsertRowid,
+      const setId = await tx.insert(
+        `insert into sets (teacher_id, title, topic, blurb, accent, created_at)
+         values (?, ?, ?, ?, ?, ?)`,
+        teacherId,
+        set.title,
+        set.topic,
+        set.blurb,
+        set.accent,
+        created,
       );
-      set.play.forEach((item, index) => insertQuestion(db, setId, 'play', index, item));
-      set.check.forEach((item, index) => insertQuestion(db, setId, 'check', index, item));
-      const assignmentId = Number(
-        db.prepare(
-          `INSERT INTO assignments (class_id, set_id, created_at) VALUES (?, ?, ?)`,
-        ).run(classId, setId, created).lastInsertRowid,
+      for (let index = 0; index < set.play.length; index += 1) {
+        await insertQuestion(tx, setId, 'play', index, set.play[index]);
+      }
+      for (let index = 0; index < set.check.length; index += 1) {
+        await insertQuestion(tx, setId, 'check', index, set.check[index]);
+      }
+      const assignmentId = await tx.insert(
+        'insert into assignments (class_id, set_id, created_at) values (?, ?, ?)',
+        classId,
+        setId,
+        created,
       );
       assignmentByTitle.set(set.title, assignmentId);
     }
 
     const additionId = assignmentByTitle.get('Easy Addition');
-    const insertPlay = db.prepare(
-      `INSERT INTO plays (
+    const lunaPlay = await tx.insert(
+      `insert into plays (
         student_id, assignment_id, status, score, stars, correct_count, miss_count,
         best_streak, streak, lives, cursor_index, round_size, created_at, finished_at
-      ) VALUES (?, ?, 'finished', ?, ?, ?, ?, ?, ?, ?, 5, 5, ?, ?)`,
+      ) values (?, ?, 'finished', 1000, 3, 5, 0, 5, 5, 3, 5, 5, ?, ?)`,
+      lunaId,
+      additionId,
+      '2026-11-06T15:00:00.000Z',
+      '2026-11-06T15:04:00.000Z',
     );
-    const lunaPlay = Number(
-      insertPlay.run(lunaId, additionId, 1000, 3, 5, 0, 5, 5, 3, '2026-11-06T15:00:00.000Z', '2026-11-06T15:04:00.000Z')
-        .lastInsertRowid,
+    const kaiPlay = await tx.insert(
+      `insert into plays (
+        student_id, assignment_id, status, score, stars, correct_count, miss_count,
+        best_streak, streak, lives, cursor_index, round_size, created_at, finished_at
+      ) values (?, ?, 'finished', 350, 2, 3, 2, 2, 0, 1, 5, 5, ?, ?)`,
+      kaiId,
+      additionId,
+      '2026-11-06T16:10:00.000Z',
+      '2026-11-06T16:14:00.000Z',
     );
-    const kaiPlay = Number(
-      insertPlay.run(kaiId, additionId, 350, 2, 3, 2, 2, 0, 1, '2026-11-06T16:10:00.000Z', '2026-11-06T16:14:00.000Z')
-        .lastInsertRowid,
+    await tx.run(
+      `insert into surveys (play_id, student_id, liked, difficulty, skipped, created_at)
+       values (?, ?, 'loved', 'just_right', 0, '2026-11-06T15:05:00.000Z')`,
+      lunaPlay,
+      lunaId,
     );
-
-    db.prepare(
-      `INSERT INTO surveys (play_id, student_id, liked, difficulty, skipped, created_at)
-       VALUES (?, ?, 'loved', 'just_right', 0, '2026-11-06T15:05:00.000Z')`,
-    ).run(lunaPlay, lunaId);
-    db.prepare(
-      `INSERT INTO surveys (play_id, student_id, liked, difficulty, skipped, created_at)
-       VALUES (?, ?, 'okay', 'too_hard', 0, '2026-11-06T16:15:00.000Z')`,
-    ).run(kaiPlay, kaiId);
-
-    const checks = db.prepare(
-      `SELECT id, prompt, correct_index FROM questions
-       WHERE set_id = (SELECT set_id FROM assignments WHERE id = ?) AND kind = 'check'
-       ORDER BY sort_order`,
-    ).all(additionId);
-    const insertCheck = db.prepare(
-      `INSERT INTO check_answers (play_id, question_id, prompt, choice_index, correct_index, correct)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+    await tx.run(
+      `insert into surveys (play_id, student_id, liked, difficulty, skipped, created_at)
+       values (?, ?, 'okay', 'too_hard', 0, '2026-11-06T16:15:00.000Z')`,
+      kaiPlay,
+      kaiId,
     );
-    checks.forEach((question, index) => {
-      insertCheck.run(lunaPlay, question.id, question.prompt, question.correct_index, question.correct_index, 1);
+    const checks = await tx.all(
+      `select id, prompt, correct_index from questions
+       where set_id = (select set_id from assignments where id = ?) and kind = 'check'
+       order by sort_order`,
+      additionId,
+    );
+    for (let index = 0; index < checks.length; index += 1) {
+      const question = checks[index];
+      await tx.run(
+        `insert into check_answers (play_id, question_id, prompt, choice_index, correct_index, correct)
+         values (?, ?, ?, ?, ?, 1)`,
+        lunaPlay,
+        question.id,
+        question.prompt,
+        question.correct_index,
+        question.correct_index,
+      );
       const kaiMiss = index === 1 || index === 4 || index === 6;
       const choice = kaiMiss ? (question.correct_index + 1) % 4 : question.correct_index;
-      insertCheck.run(kaiPlay, question.id, question.prompt, choice, question.correct_index, kaiMiss ? 0 : 1);
-    });
-    // Luna missed the last checkup item so the class is not perfect.
+      await tx.run(
+        `insert into check_answers (play_id, question_id, prompt, choice_index, correct_index, correct)
+         values (?, ?, ?, ?, ?, ?)`,
+        kaiPlay,
+        question.id,
+        question.prompt,
+        choice,
+        question.correct_index,
+        kaiMiss ? 0 : 1,
+      );
+    }
     const last = checks[checks.length - 1];
-    db.prepare(
-      `UPDATE check_answers SET choice_index = ?, correct = 0 WHERE play_id = ? AND question_id = ?`,
-    ).run((last.correct_index + 1) % 4, lunaPlay, last.id);
-
-    db.exec('COMMIT');
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+    await tx.run(
+      'update check_answers set choice_index = ?, correct = 0 where play_id = ? and question_id = ?',
+      (last.correct_index + 1) % 4,
+      lunaPlay,
+      last.id,
+    );
+  });
 }
 
-export function openDatabase(file) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  db.exec('PRAGMA journal_mode = WAL;');
-  migrate(db);
-  seed(db);
+export async function openDatabase() {
+  const db = await openStore();
+  await seed(db);
   return db;
 }

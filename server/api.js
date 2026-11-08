@@ -21,6 +21,12 @@ import {
 
 const hits = new Map();
 
+function route(fn) {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res)).catch(next);
+  };
+}
+
 function readCookie(req, name) {
   const raw = req.headers.cookie || '';
   for (const part of raw.split(';')) {
@@ -30,21 +36,30 @@ function readCookie(req, name) {
   return '';
 }
 
-function setCookie(res, token) {
-  res.setHeader(
-    'Set-Cookie',
-    [`kb_session=${token}`, 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=2592000'].join('; '),
-  );
+function cookieSecure(req) {
+  return req.secure || req.get('x-forwarded-proto') === 'https';
 }
 
-function clearCookie(res) {
-  res.setHeader('Set-Cookie', 'kb_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+function setCookie(res, req, token) {
+  const parts = [`kb_session=${token}`, 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=2592000'];
+  if (cookieSecure(req)) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+function clearCookie(res, req) {
+  const parts = ['kb_session=', 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=0'];
+  if (cookieSecure(req)) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
 }
 
 function intId(value) {
   const n = Number(value);
   if (!Number.isInteger(n) || n <= 0) return null;
   return n;
+}
+
+function count(row) {
+  return Number(row?.n ?? 0);
 }
 
 function limited(req, res) {
@@ -91,19 +106,22 @@ function dealView(deal) {
   };
 }
 
+function isUnique(error) {
+  return error?.code === '23505' || String(error?.message || '').toLowerCase().includes('unique');
+}
+
 export function mountApi(app, db) {
-  function userFrom(req) {
+  async function userFrom(req) {
     const token = readCookie(req, 'kb_session');
     if (!token) return null;
-    return (
-      db.prepare(
-        `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`,
-      ).get(token) || null
+    return db.get(
+      'select u.* from sessions s join users u on u.id = s.user_id where s.token = ?',
+      token,
     );
   }
 
-  function requireUser(req, res) {
-    const user = userFrom(req);
+  async function requireUser(req, res) {
+    const user = await userFrom(req);
     if (!user) {
       res.status(401).json({ error: 'Please sign in first.' });
       return null;
@@ -111,8 +129,8 @@ export function mountApi(app, db) {
     return user;
   }
 
-  function requireRole(req, res, role) {
-    const user = requireUser(req, res);
+  async function requireRole(req, res, role) {
+    const user = await requireUser(req, res);
     if (!user) return null;
     if (user.role !== role) {
       res.status(403).json({ error: 'That page is for a different login.' });
@@ -121,14 +139,22 @@ export function mountApi(app, db) {
     return user;
   }
 
-  function startSession(res, user) {
+  async function startSession(res, req, user) {
     const token = randomBytes(32).toString('hex');
-    db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)').run(
+    await db.run(
+      'insert into sessions (token, user_id, created_at) values (?, ?, ?)',
       token,
       user.id,
       nowIso(),
     );
-    setCookie(res, token);
+    const old = await db.all(
+      'select token from sessions where user_id = ? order by created_at desc',
+      user.id,
+    );
+    for (const row of old.slice(5)) {
+      await db.run('delete from sessions where token = ?', row.token);
+    }
+    setCookie(res, req, token);
   }
 
   app.use('/api', (req, res, next) => {
@@ -141,12 +167,12 @@ export function mountApi(app, db) {
     res.json({ ok: true });
   });
 
-  app.get('/api/me', (req, res) => {
-    const user = userFrom(req);
+  app.get('/api/me', route(async (req, res) => {
+    const user = await userFrom(req);
     res.json({ user: user ? publicUser(user) : null });
-  });
+  }));
 
-  app.post('/api/auth/signup', (req, res) => {
+  app.post('/api/auth/signup', route(async (req, res) => {
     if (limited(req, res)) return;
     const username = cleanUsername(req.body?.username);
     const password = cleanPassword(req.body?.password);
@@ -156,84 +182,91 @@ export function mountApi(app, db) {
     if (!password) return res.status(400).json({ error: 'Use a password of 4 to 32 letters or numbers, with no spaces.' });
     if (!displayName) return res.status(400).json({ error: 'Add a nickname with letters, like Luna or Ms. Nova.' });
     if (!role) return res.status(400).json({ error: 'Pick student or teacher.' });
-    if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n >= 500) {
+    if (count(await db.get('select count(*)::int as n from users')) >= 500) {
       return res.status(400).json({ error: 'This class server is full.' });
     }
 
     const code = cleanLine(req.body?.joinCode || '', 8).toUpperCase().replace(/[^A-Z0-9]/g, '');
     let classId = null;
     if (role === 'student' && code) {
-      const klass = db.prepare('SELECT id FROM classes WHERE join_code = ?').get(code);
+      const klass = await db.get('select id from classes where join_code = ?', code);
       if (!klass) return res.status(400).json({ error: 'That class code did not match.' });
       classId = klass.id;
     }
 
     try {
-      const id = Number(
-        db.prepare(
-          `INSERT INTO users (username, password_hash, role, display_name, class_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-        ).run(username, hashPassword(password), role, displayName, classId, nowIso()).lastInsertRowid,
+      const id = await db.insert(
+        `insert into users (username, password_hash, role, display_name, class_id, created_at)
+         values (?, ?, ?, ?, ?, ?)`,
+        username,
+        hashPassword(password),
+        role,
+        displayName,
+        classId,
+        nowIso(),
       );
-      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-      startSession(res, user);
+      const user = await db.get('select * from users where id = ?', id);
+      await startSession(res, req, user);
       res.status(201).json({ user: publicUser(user) });
     } catch (error) {
-      if (String(error.message).includes('UNIQUE')) {
+      if (isUnique(error)) {
         res.status(400).json({ error: 'That username is taken. Try another.' });
         return;
       }
       throw error;
     }
-  });
+  }));
 
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', route(async (req, res) => {
     if (limited(req, res)) return;
     const username = cleanUsername(req.body?.username);
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    const user = username ? db.prepare('SELECT * FROM users WHERE username = ?').get(username) : null;
+    const user = username ? await db.get('select * from users where username = ?', username) : null;
     const safePassword = password.length > 72 ? 'nope' : password || 'nope';
     const ok = verifyPassword(safePassword, user ? user.password_hash : dummyHash());
     if (!user || !ok || password.length > 72) {
       res.status(401).json({ error: 'That username and password did not match.' });
       return;
     }
-    startSession(res, user);
+    await startSession(res, req, user);
     res.json({ user: publicUser(user) });
-  });
+  }));
 
-  app.post('/api/auth/logout', (req, res) => {
+  app.post('/api/auth/logout', route(async (req, res) => {
     const token = readCookie(req, 'kb_session');
-    if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
-    clearCookie(res);
+    if (token) await db.run('delete from sessions where token = ?', token);
+    clearCookie(res, req);
     res.json({ ok: true });
-  });
+  }));
 
-  app.get('/api/home', (req, res) => {
-    const user = requireUser(req, res);
+  app.get('/api/home', route(async (req, res) => {
+    const user = await requireUser(req, res);
     if (!user) return;
     if (user.role === 'teacher') {
-      const klass = db.prepare('SELECT * FROM classes WHERE teacher_id = ?').get(user.id);
-      const sets = db.prepare(
-        `SELECT s.*,
-            (SELECT COUNT(*) FROM questions q WHERE q.set_id = s.id AND q.kind = 'play') AS play_count,
-            (SELECT COUNT(*) FROM questions q WHERE q.set_id = s.id AND q.kind = 'check') AS check_count,
-            (SELECT a.id FROM assignments a WHERE a.set_id = s.id LIMIT 1) AS assignment_id
-         FROM sets s WHERE s.teacher_id = ? ORDER BY s.id`,
-      ).all(user.id);
+      const klass = await db.get('select * from classes where teacher_id = ?', user.id);
+      const sets = await db.all(
+        `select s.*,
+            (select count(*)::int from questions q where q.set_id = s.id and q.kind = 'play') as play_count,
+            (select count(*)::int from questions q where q.set_id = s.id and q.kind = 'check') as check_count,
+            (select a.id from assignments a where a.set_id = s.id limit 1) as assignment_id
+         from sets s where s.teacher_id = ? order by s.id`,
+        user.id,
+      );
       const games = klass
-        ? db.prepare(
-            `SELECT a.id, s.title, s.topic, s.accent, s.blurb, a.set_id,
-                (SELECT COUNT(*) FROM plays p WHERE p.assignment_id = a.id AND p.status = 'finished') AS play_count,
-                (SELECT COUNT(DISTINCT p.student_id) FROM plays p WHERE p.assignment_id = a.id AND p.status = 'finished') AS student_count
-             FROM assignments a JOIN sets s ON s.id = a.set_id
-             WHERE a.class_id = ? ORDER BY a.id`,
-          ).all(klass.id)
+        ? await db.all(
+          `select a.id, s.title, s.topic, s.accent, s.blurb, a.set_id,
+              (select count(*)::int from plays p where p.assignment_id = a.id and p.status = 'finished') as play_count,
+              (select count(distinct p.student_id)::int from plays p where p.assignment_id = a.id and p.status = 'finished') as student_count
+           from assignments a join sets s on s.id = a.set_id
+           where a.class_id = ? order by a.id`,
+          klass.id,
+        )
         : [];
       const students = klass
-        ? db.prepare(
-            `SELECT id, display_name FROM users WHERE class_id = ? AND role = 'student' ORDER BY display_name COLLATE NOCASE`,
-          ).all(klass.id)
+        ? await db.all(
+          `select id, display_name from users where class_id = ? and role = 'student' order by lower(display_name)`,
+          klass.id,
+        )
         : [];
       res.json({
         class: klass
@@ -268,16 +301,19 @@ export function mountApi(app, db) {
       return;
     }
 
-    const klass = user.class_id ? db.prepare('SELECT * FROM classes WHERE id = ?').get(user.class_id) : null;
+    const klass = user.class_id ? await db.get('select * from classes where id = ?', user.class_id) : null;
     const games = klass
-      ? db.prepare(
-          `SELECT a.id, s.title, s.topic, s.accent, s.blurb,
-              (SELECT COUNT(*) FROM questions q WHERE q.set_id = s.id AND q.kind = 'play') AS play_count,
-              (SELECT MAX(p.score) FROM plays p WHERE p.assignment_id = a.id AND p.student_id = ? AND p.status = 'finished') AS best_score,
-              (SELECT p.stars FROM plays p WHERE p.assignment_id = a.id AND p.student_id = ? AND p.status = 'finished' ORDER BY p.score DESC, p.id DESC LIMIT 1) AS best_stars
-           FROM assignments a JOIN sets s ON s.id = a.set_id
-           WHERE a.class_id = ? ORDER BY a.id`,
-        ).all(user.id, user.id, klass.id)
+      ? await db.all(
+        `select a.id, s.title, s.topic, s.accent, s.blurb,
+            (select count(*)::int from questions q where q.set_id = s.id and q.kind = 'play') as play_count,
+            (select max(p.score) from plays p where p.assignment_id = a.id and p.student_id = ? and p.status = 'finished') as best_score,
+            (select p.stars from plays p where p.assignment_id = a.id and p.student_id = ? and p.status = 'finished' order by p.score desc, p.id desc limit 1) as best_stars
+         from assignments a join sets s on s.id = a.set_id
+         where a.class_id = ? order by a.id`,
+        user.id,
+        user.id,
+        klass.id,
+      )
       : [];
     res.json({
       class: klass ? { id: klass.id, name: klass.name, joinCode: klass.join_code } : null,
@@ -287,65 +323,87 @@ export function mountApi(app, db) {
         topic: game.topic,
         accent: game.accent,
         blurb: game.blurb,
-        roundSize: Math.min(ROUND_SIZE, game.play_count),
+        roundSize: Math.min(ROUND_SIZE, Number(game.play_count)),
         bestScore: game.best_score,
         bestStars: game.best_stars,
       })),
     });
-  });
+  }));
 
-  app.post('/api/class', (req, res) => {
-    const user = requireRole(req, res, 'teacher');
+  app.post('/api/class', route(async (req, res) => {
+    const user = await requireRole(req, res, 'teacher');
     if (!user) return;
     const name = cleanName(req.body?.name, 32);
     if (!name) return res.status(400).json({ error: 'Give your class a short name.' });
-    const existing = db.prepare('SELECT * FROM classes WHERE teacher_id = ?').get(user.id);
+    const existing = await db.get('select * from classes where teacher_id = ?', user.id);
     if (existing) {
-      db.prepare('UPDATE classes SET name = ? WHERE id = ?').run(name, existing.id);
+      await db.run('update classes set name = ? where id = ?', name, existing.id);
       res.json({ class: { id: existing.id, name, joinCode: existing.join_code } });
       return;
     }
     let code = makeCode();
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      const taken = db.prepare('SELECT 1 FROM classes WHERE join_code = ?').get(code);
+      const taken = await db.get('select 1 as ok from classes where join_code = ?', code);
       if (!taken) break;
       code = makeCode();
     }
-    const id = Number(
-      db.prepare('INSERT INTO classes (teacher_id, name, join_code, created_at) VALUES (?, ?, ?, ?)').run(
-        user.id,
-        name,
-        code,
-        nowIso(),
-      ).lastInsertRowid,
+    const id = await db.insert(
+      'insert into classes (teacher_id, name, join_code, created_at) values (?, ?, ?, ?)',
+      user.id,
+      name,
+      code,
+      nowIso(),
     );
-    db.prepare('UPDATE users SET class_id = ? WHERE id = ?').run(id, user.id);
+    await db.run('update users set class_id = ? where id = ?', id, user.id);
     res.status(201).json({ class: { id, name, joinCode: code } });
-  });
+  }));
 
-  app.post('/api/class/join', (req, res) => {
-    const user = requireRole(req, res, 'student');
+  app.post('/api/class/join', route(async (req, res) => {
+    const user = await requireRole(req, res, 'student');
     if (!user) return;
     const code = cleanLine(req.body?.code || '', 8).toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (code.length < 4) return res.status(400).json({ error: 'Enter the class code.' });
-    const klass = db.prepare('SELECT * FROM classes WHERE join_code = ?').get(code);
+    const klass = await db.get('select * from classes where join_code = ?', code);
     if (!klass) return res.status(400).json({ error: 'That class code did not match.' });
-    db.prepare('UPDATE users SET class_id = ? WHERE id = ?').run(klass.id, user.id);
+    await db.run('update users set class_id = ? where id = ?', klass.id, user.id);
     res.json({ class: { id: klass.id, name: klass.name, joinCode: klass.join_code } });
-  });
+  }));
 
-  function saveQuestions(setId, play, check) {
-    db.prepare('DELETE FROM questions WHERE set_id = ?').run(setId);
-    const insert = db.prepare(
-      `INSERT INTO questions (
-        set_id, kind, prompt, choice_a, choice_b, choice_c, choice_d, correct_index, sort_order
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    play.forEach((question, index) => {
-      insert.run(setId, 'play', question.prompt, ...question.choices, question.correctIndex, index);
-    });
-    check.forEach((question, index) => {
-      insert.run(setId, 'check', question.prompt, ...question.choices, question.correctIndex, index);
+  async function saveQuestions(setId, play, check) {
+    await db.transaction(async (tx) => {
+      await tx.run('delete from questions where set_id = ?', setId);
+      for (let index = 0; index < play.length; index += 1) {
+        const question = play[index];
+        await tx.run(
+          `insert into questions (
+            set_id, kind, prompt, choice_a, choice_b, choice_c, choice_d, correct_index, sort_order
+          ) values (?, 'play', ?, ?, ?, ?, ?, ?, ?)`,
+          setId,
+          question.prompt,
+          question.choices[0],
+          question.choices[1],
+          question.choices[2],
+          question.choices[3],
+          question.correctIndex,
+          index,
+        );
+      }
+      for (let index = 0; index < check.length; index += 1) {
+        const question = check[index];
+        await tx.run(
+          `insert into questions (
+            set_id, kind, prompt, choice_a, choice_b, choice_c, choice_d, correct_index, sort_order
+          ) values (?, 'check', ?, ?, ?, ?, ?, ?, ?)`,
+          setId,
+          question.prompt,
+          question.choices[0],
+          question.choices[1],
+          question.choices[2],
+          question.choices[3],
+          question.correctIndex,
+          index,
+        );
+      }
     });
   }
 
@@ -377,9 +435,12 @@ export function mountApi(app, db) {
     return { title, topic, blurb, accent, play, check };
   }
 
-  function setPayload(set) {
-    const questions = db.prepare('SELECT * FROM questions WHERE set_id = ? ORDER BY kind DESC, sort_order').all(set.id);
-    const assignment = db.prepare('SELECT id FROM assignments WHERE set_id = ?').get(set.id);
+  async function setPayload(set) {
+    const questions = await db.all(
+      'select * from questions where set_id = ? order by kind desc, sort_order',
+      set.id,
+    );
+    const assignment = await db.get('select id from assignments where set_id = ?', set.id);
     return {
       id: set.id,
       title: set.title,
@@ -392,112 +453,121 @@ export function mountApi(app, db) {
     };
   }
 
-  app.get('/api/sets/:id', (req, res) => {
-    const user = requireRole(req, res, 'teacher');
+  app.get('/api/sets/:id', route(async (req, res) => {
+    const user = await requireRole(req, res, 'teacher');
     if (!user) return;
     const id = intId(req.params.id);
-    const set = id ? db.prepare('SELECT * FROM sets WHERE id = ? AND teacher_id = ?').get(id, user.id) : null;
+    const set = id ? await db.get('select * from sets where id = ? and teacher_id = ?', id, user.id) : null;
     if (!set) return res.status(404).json({ error: 'That question set could not be found.' });
-    res.json({ set: setPayload(set) });
-  });
+    res.json({ set: await setPayload(set) });
+  }));
 
-  app.post('/api/sets', (req, res) => {
-    const user = requireRole(req, res, 'teacher');
+  app.post('/api/sets', route(async (req, res) => {
+    const user = await requireRole(req, res, 'teacher');
     if (!user) return;
-    if (db.prepare('SELECT COUNT(*) AS n FROM sets WHERE teacher_id = ?').get(user.id).n >= 100) {
+    if (count(await db.get('select count(*)::int as n from sets where teacher_id = ?', user.id)) >= 100) {
       return res.status(400).json({ error: 'You have a lot of sets. Edit one you already made.' });
     }
     const parsed = readSetBody(req.body);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
-    const id = Number(
-      db.prepare(
-        `INSERT INTO sets (teacher_id, title, topic, blurb, accent, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(user.id, parsed.title, parsed.topic, parsed.blurb, parsed.accent, nowIso()).lastInsertRowid,
+    const id = await db.insert(
+      'insert into sets (teacher_id, title, topic, blurb, accent, created_at) values (?, ?, ?, ?, ?, ?)',
+      user.id,
+      parsed.title,
+      parsed.topic,
+      parsed.blurb,
+      parsed.accent,
+      nowIso(),
     );
-    saveQuestions(id, parsed.play, parsed.check);
-    const set = db.prepare('SELECT * FROM sets WHERE id = ?').get(id);
-    res.status(201).json({ set: setPayload(set) });
-  });
+    await saveQuestions(id, parsed.play, parsed.check);
+    res.status(201).json({ set: await setPayload(await db.get('select * from sets where id = ?', id)) });
+  }));
 
-  app.put('/api/sets/:id', (req, res) => {
-    const user = requireRole(req, res, 'teacher');
+  app.put('/api/sets/:id', route(async (req, res) => {
+    const user = await requireRole(req, res, 'teacher');
     if (!user) return;
     const id = intId(req.params.id);
-    const set = id ? db.prepare('SELECT * FROM sets WHERE id = ? AND teacher_id = ?').get(id, user.id) : null;
+    const set = id ? await db.get('select * from sets where id = ? and teacher_id = ?', id, user.id) : null;
     if (!set) return res.status(404).json({ error: 'That question set could not be found.' });
     const parsed = readSetBody(req.body);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
-    db.prepare('UPDATE sets SET title = ?, topic = ?, blurb = ?, accent = ? WHERE id = ?').run(
+    await db.run(
+      'update sets set title = ?, topic = ?, blurb = ?, accent = ? where id = ?',
       parsed.title,
       parsed.topic,
       parsed.blurb,
       parsed.accent,
       id,
     );
-    saveQuestions(id, parsed.play, parsed.check);
-    res.json({ set: setPayload(db.prepare('SELECT * FROM sets WHERE id = ?').get(id)) });
-  });
+    await saveQuestions(id, parsed.play, parsed.check);
+    res.json({ set: await setPayload(await db.get('select * from sets where id = ?', id)) });
+  }));
 
-  app.delete('/api/sets/:id', (req, res) => {
-    const user = requireRole(req, res, 'teacher');
+  app.delete('/api/sets/:id', route(async (req, res) => {
+    const user = await requireRole(req, res, 'teacher');
     if (!user) return;
     const id = intId(req.params.id);
-    const set = id ? db.prepare('SELECT * FROM sets WHERE id = ? AND teacher_id = ?').get(id, user.id) : null;
+    const set = id ? await db.get('select * from sets where id = ? and teacher_id = ?', id, user.id) : null;
     if (!set) return res.status(404).json({ error: 'That question set could not be found.' });
-    const finished = db.prepare(
-      `SELECT COUNT(*) AS n FROM plays p
-       JOIN assignments a ON a.id = p.assignment_id
-       WHERE a.set_id = ? AND p.status = 'finished'`,
-    ).get(id).n;
+    const finished = count(await db.get(
+      `select count(*)::int as n from plays p
+       join assignments a on a.id = p.assignment_id
+       where a.set_id = ? and p.status = 'finished'`,
+      id,
+    ));
     if (finished > 0) {
       return res.status(400).json({ error: 'This set has saved scores, so it stays.' });
     }
-    db.prepare('DELETE FROM assignments WHERE set_id = ?').run(id);
-    db.prepare('DELETE FROM questions WHERE set_id = ?').run(id);
-    db.prepare('DELETE FROM sets WHERE id = ?').run(id);
+    await db.run('delete from assignments where set_id = ?', id);
+    await db.run('delete from questions where set_id = ?', id);
+    await db.run('delete from sets where id = ?', id);
     res.json({ ok: true });
-  });
+  }));
 
-  app.post('/api/assignments', (req, res) => {
-    const user = requireRole(req, res, 'teacher');
+  app.post('/api/assignments', route(async (req, res) => {
+    const user = await requireRole(req, res, 'teacher');
     if (!user) return;
     const setId = intId(req.body?.setId);
-    const set = setId ? db.prepare('SELECT * FROM sets WHERE id = ? AND teacher_id = ?').get(setId, user.id) : null;
+    const set = setId ? await db.get('select * from sets where id = ? and teacher_id = ?', setId, user.id) : null;
     if (!set) return res.status(404).json({ error: 'That question set could not be found.' });
-    const klass = db.prepare('SELECT * FROM classes WHERE teacher_id = ?').get(user.id);
+    const klass = await db.get('select * from classes where teacher_id = ?', user.id);
     if (!klass) return res.status(400).json({ error: 'Make a class before you assign a game.' });
-    const playCount = db.prepare(
-      `SELECT COUNT(*) AS n FROM questions WHERE set_id = ? AND kind = 'play'`,
-    ).get(set.id).n;
+    const playCount = count(await db.get(
+      `select count(*)::int as n from questions where set_id = ? and kind = 'play'`,
+      set.id,
+    ));
     if (playCount < 1) return res.status(400).json({ error: 'Add a game question before assigning this set.' });
-    const existing = db.prepare('SELECT * FROM assignments WHERE class_id = ? AND set_id = ?').get(klass.id, set.id);
+    const existing = await db.get('select * from assignments where class_id = ? and set_id = ?', klass.id, set.id);
     if (existing) return res.json({ assignmentId: existing.id, already: true });
-    const id = Number(
-      db.prepare('INSERT INTO assignments (class_id, set_id, created_at) VALUES (?, ?, ?)').run(
-        klass.id,
-        set.id,
-        nowIso(),
-      ).lastInsertRowid,
+    const id = await db.insert(
+      'insert into assignments (class_id, set_id, created_at) values (?, ?, ?)',
+      klass.id,
+      set.id,
+      nowIso(),
     );
     res.status(201).json({ assignmentId: id, already: false });
-  });
+  }));
 
-  function loadAssignment(id) {
+  async function loadAssignment(id) {
     if (!id) return null;
-    return db.prepare(
-      `SELECT a.*, s.title, s.topic, s.accent, s.blurb, s.teacher_id, s.id AS set_id
-       FROM assignments a JOIN sets s ON s.id = a.set_id WHERE a.id = ?`,
-    ).get(id);
+    return db.get(
+      `select a.*, s.title, s.topic, s.accent, s.blurb, s.teacher_id, s.id as set_id
+       from assignments a join sets s on s.id = a.set_id where a.id = ?`,
+      id,
+    );
   }
 
-  function activePlay(userId, assignmentId) {
-    const play = db.prepare(
-      `SELECT * FROM plays WHERE student_id = ? AND assignment_id = ? AND status = 'playing' ORDER BY id DESC LIMIT 1`,
-    ).get(userId, assignmentId);
+  async function activePlay(userId, assignmentId) {
+    const play = await db.get(
+      `select * from plays where student_id = ? and assignment_id = ? and status = 'playing' order by id desc limit 1`,
+      userId,
+      assignmentId,
+    );
     if (!play) return null;
-    const deals = db.prepare(
-      `SELECT * FROM play_deals WHERE play_id = ? AND kind = 'play' ORDER BY position`,
-    ).all(play.id);
+    const deals = await db.all(
+      `select * from play_deals where play_id = ? and kind = 'play' order by position`,
+      play.id,
+    );
     return {
       playId: play.id,
       index: play.cursor_index,
@@ -509,16 +579,17 @@ export function mountApi(app, db) {
     };
   }
 
-  app.get('/api/assignments/:id', (req, res) => {
-    const user = requireRole(req, res, 'student');
+  app.get('/api/assignments/:id', route(async (req, res) => {
+    const user = await requireRole(req, res, 'student');
     if (!user) return;
-    const assignment = loadAssignment(intId(req.params.id));
+    const assignment = await loadAssignment(intId(req.params.id));
     if (!assignment || assignment.class_id !== user.class_id) {
       return res.status(404).json({ error: 'That game is not in your class.' });
     }
-    const playCount = db.prepare(
-      `SELECT COUNT(*) AS n FROM questions WHERE set_id = ? AND kind = 'play'`,
-    ).get(assignment.set_id).n;
+    const playCount = count(await db.get(
+      `select count(*)::int as n from questions where set_id = ? and kind = 'play'`,
+      assignment.set_id,
+    ));
     res.json({
       id: assignment.id,
       title: assignment.title,
@@ -527,53 +598,63 @@ export function mountApi(app, db) {
       blurb: assignment.blurb,
       roundSize: Math.min(ROUND_SIZE, playCount),
       lives: START_LIVES,
-      activePlay: activePlay(user.id, assignment.id),
+      activePlay: await activePlay(user.id, assignment.id),
     });
-  });
+  }));
 
-  app.post('/api/plays', (req, res) => {
-    const user = requireRole(req, res, 'student');
+  app.post('/api/plays', route(async (req, res) => {
+    const user = await requireRole(req, res, 'student');
     if (!user) return;
-    const assignment = loadAssignment(intId(req.body?.assignmentId));
+    const assignment = await loadAssignment(intId(req.body?.assignmentId));
     if (!assignment || assignment.class_id !== user.class_id) {
       return res.status(404).json({ error: 'That game is not in your class.' });
     }
-    const pool = db.prepare(
-      `SELECT * FROM questions WHERE set_id = ? AND kind = 'play' ORDER BY sort_order`,
-    ).all(assignment.set_id);
+    const pool = await db.all(
+      `select * from questions where set_id = ? and kind = 'play' order by sort_order`,
+      assignment.set_id,
+    );
     if (!pool.length) return res.status(400).json({ error: 'This game has no questions yet.' });
+    if (count(await db.get('select count(*)::int as n from plays where student_id = ?', user.id)) >= 80) {
+      return res.status(400).json({ error: 'You have played a lot today. Ask your teacher for a new try.' });
+    }
     const chosen = shuffle(pool).slice(0, Math.min(ROUND_SIZE, pool.length));
 
-    db.exec('BEGIN');
-    let playId;
-    try {
-      db.prepare(
-        `UPDATE plays SET status = 'abandoned' WHERE student_id = ? AND assignment_id = ? AND status = 'playing'`,
-      ).run(user.id, assignment.id);
-      playId = Number(
-        db.prepare(
-          `INSERT INTO plays (
-            student_id, assignment_id, status, lives, round_size, created_at
-          ) VALUES (?, ?, 'playing', ?, ?, ?)`,
-        ).run(user.id, assignment.id, START_LIVES, chosen.length, nowIso()).lastInsertRowid,
+    const playId = await db.transaction(async (tx) => {
+      await tx.run(
+        `update plays set status = 'abandoned' where student_id = ? and assignment_id = ? and status = 'playing'`,
+        user.id,
+        assignment.id,
       );
-      const insertDeal = db.prepare(
-        `INSERT INTO play_deals (play_id, question_id, kind, position, prompt, choices_json, correct_index)
-         VALUES (?, ?, 'play', ?, ?, ?, ?)`,
+      const id = await tx.insert(
+        `insert into plays (student_id, assignment_id, status, lives, round_size, created_at)
+         values (?, ?, 'playing', ?, ?, ?)`,
+        user.id,
+        assignment.id,
+        START_LIVES,
+        chosen.length,
+        nowIso(),
       );
-      chosen.forEach((question, position) => {
+      for (let position = 0; position < chosen.length; position += 1) {
+        const question = chosen[position];
         const dealt = dealChoices(question);
-        insertDeal.run(playId, question.id, position, question.prompt, JSON.stringify(dealt.choices), dealt.correctIndex);
-      });
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
+        await tx.run(
+          `insert into play_deals (play_id, question_id, kind, position, prompt, choices_json, correct_index)
+           values (?, ?, 'play', ?, ?, ?, ?)`,
+          id,
+          question.id,
+          position,
+          question.prompt,
+          JSON.stringify(dealt.choices),
+          dealt.correctIndex,
+        );
+      }
+      return id;
+    });
 
-    const deals = db.prepare(
-      `SELECT * FROM play_deals WHERE play_id = ? AND kind = 'play' ORDER BY position`,
-    ).all(playId);
+    const deals = await db.all(
+      `select * from play_deals where play_id = ? and kind = 'play' order by position`,
+      playId,
+    );
     res.status(201).json({
       playId,
       title: assignment.title,
@@ -582,12 +663,12 @@ export function mountApi(app, db) {
       lives: START_LIVES,
       questions: deals.map(dealView),
     });
-  });
+  }));
 
   function answerJson(play, deal, correct, picked) {
     const choices = choicesOf(deal);
     return {
-      correct: !!correct,
+      correct: !!Number(correct),
       correctIndex: deal.correct_index,
       correctText: choices[deal.correct_index],
       picked,
@@ -603,11 +684,11 @@ export function mountApi(app, db) {
     };
   }
 
-  app.post('/api/plays/:id/answer', (req, res) => {
-    const user = requireRole(req, res, 'student');
+  app.post('/api/plays/:id/answer', route(async (req, res) => {
+    const user = await requireRole(req, res, 'student');
     if (!user) return;
     const playId = intId(req.params.id);
-    const play = playId ? db.prepare('SELECT * FROM plays WHERE id = ?').get(playId) : null;
+    const play = playId ? await db.get('select * from plays where id = ?', playId) : null;
     if (!play || play.student_id !== user.id) {
       return res.status(404).json({ error: 'That round could not be found.' });
     }
@@ -616,26 +697,31 @@ export function mountApi(app, db) {
     if (!questionId || !Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex > 3) {
       return res.status(400).json({ error: 'Pick one of the answers.' });
     }
-    const deal = db.prepare(
-      `SELECT * FROM play_deals WHERE play_id = ? AND question_id = ? AND kind = 'play'`,
-    ).get(play.id, questionId);
+    const deal = await db.get(
+      `select * from play_deals where play_id = ? and question_id = ? and kind = 'play'`,
+      play.id,
+      questionId,
+    );
     if (!deal) return res.status(400).json({ error: 'That answer is not part of this round.' });
 
-    const existing = db.prepare(
-      'SELECT * FROM play_answers WHERE play_id = ? AND question_id = ?',
-    ).get(play.id, questionId);
+    const existing = await db.get(
+      'select * from play_answers where play_id = ? and question_id = ?',
+      play.id,
+      questionId,
+    );
     if (existing) {
-      const fresh = db.prepare('SELECT * FROM plays WHERE id = ?').get(play.id);
-      return res.json(answerJson(fresh, deal, existing.correct, existing.choice_index));
+      const fresh = await db.get('select * from plays where id = ?', play.id);
+      res.json(answerJson(fresh, deal, existing.correct, existing.choice_index));
+      return;
     }
     if (play.status !== 'playing') {
       return res.status(400).json({ error: 'This round is already finished.' });
     }
-    if (deal.position !== play.cursor_index) {
+    if (Number(deal.position) !== Number(play.cursor_index)) {
       return res.status(400).json({ error: 'Answer the question on the screen.' });
     }
 
-    const correct = choiceIndex === deal.correct_index ? 1 : 0;
+    const correct = choiceIndex === Number(deal.correct_index) ? 1 : 0;
     let streak = play.streak;
     let score = play.score;
     let lives = play.lives;
@@ -652,20 +738,24 @@ export function mountApi(app, db) {
       missCount += 1;
       lives = Math.max(0, lives - 1);
     }
-    const cursor = play.cursor_index + 1;
-    const finished = lives <= 0 || cursor >= play.round_size;
-    const stars = finished ? computeStars({ correctCount, missCount, roundSize: play.round_size }) : null;
+    const cursor = Number(play.cursor_index) + 1;
+    const finished = lives <= 0 || cursor >= Number(play.round_size);
+    const stars = finished ? computeStars({ correctCount, missCount, roundSize: Number(play.round_size) }) : null;
 
-    db.exec('BEGIN');
-    try {
-      db.prepare(
-        `INSERT INTO play_answers (play_id, question_id, prompt, choice_index, correct_index, correct)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(play.id, questionId, deal.prompt, choiceIndex, deal.correct_index, correct);
-      db.prepare(
-        `UPDATE plays SET score = ?, streak = ?, best_streak = ?, lives = ?, correct_count = ?,
-         miss_count = ?, cursor_index = ?, status = ?, stars = ?, finished_at = ? WHERE id = ?`,
-      ).run(
+    await db.transaction(async (tx) => {
+      await tx.run(
+        `insert into play_answers (play_id, question_id, prompt, choice_index, correct_index, correct)
+         values (?, ?, ?, ?, ?, ?)`,
+        play.id,
+        questionId,
+        deal.prompt,
+        choiceIndex,
+        deal.correct_index,
+        correct,
+      );
+      await tx.run(
+        `update plays set score = ?, streak = ?, best_streak = ?, lives = ?, correct_count = ?,
+         miss_count = ?, cursor_index = ?, status = ?, stars = ?, finished_at = ? where id = ?`,
         score,
         streak,
         best,
@@ -678,31 +768,30 @@ export function mountApi(app, db) {
         finished ? nowIso() : null,
         play.id,
       );
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
+    });
 
-    const fresh = db.prepare('SELECT * FROM plays WHERE id = ?').get(play.id);
+    const fresh = await db.get('select * from plays where id = ?', play.id);
     res.json(answerJson(fresh, deal, correct, choiceIndex));
-  });
+  }));
 
-  app.get('/api/plays/:id', (req, res) => {
-    const user = requireRole(req, res, 'student');
+  app.get('/api/plays/:id', route(async (req, res) => {
+    const user = await requireRole(req, res, 'student');
     if (!user) return;
-    const play = db.prepare('SELECT * FROM plays WHERE id = ?').get(intId(req.params.id));
+    const play = await db.get('select * from plays where id = ?', intId(req.params.id));
     if (!play || play.student_id !== user.id || play.status !== 'finished') {
       return res.status(404).json({ error: 'That score could not be found.' });
     }
-    const assignment = loadAssignment(play.assignment_id);
-    const survey = db.prepare('SELECT * FROM surveys WHERE play_id = ?').get(play.id);
-    const check = db.prepare(
-      'SELECT COALESCE(SUM(correct), 0) AS correct, COUNT(*) AS total FROM check_answers WHERE play_id = ?',
-    ).get(play.id);
-    const planned = db.prepare(
-      `SELECT COUNT(*) AS n FROM play_deals WHERE play_id = ? AND kind = 'check'`,
-    ).get(play.id).n;
+    const assignment = await loadAssignment(play.assignment_id);
+    const survey = await db.get('select * from surveys where play_id = ?', play.id);
+    const check = await db.get(
+      'select coalesce(sum(correct), 0)::int as correct, count(*)::int as total from check_answers where play_id = ?',
+      play.id,
+    );
+    const planned = count(await db.get(
+      `select count(*)::int as n from play_deals where play_id = ? and kind = 'check'`,
+      play.id,
+    ));
+    const answered = Number(check.total);
     res.json({
       playId: play.id,
       assignmentId: play.assignment_id,
@@ -717,23 +806,23 @@ export function mountApi(app, db) {
       roundSize: play.round_size,
       answered: play.cursor_index,
       survey: survey
-        ? { liked: survey.liked, difficulty: survey.difficulty, skipped: !!survey.skipped }
+        ? { liked: survey.liked, difficulty: survey.difficulty, skipped: !!Number(survey.skipped) }
         : null,
-      check: check.total
+      check: answered
         ? {
             correct: Number(check.correct),
-            answered: Number(check.total),
-            total: Number(planned) || Number(check.total),
-            done: Number(planned) > 0 && Number(check.total) >= Number(planned),
+            answered,
+            total: planned || answered,
+            done: planned > 0 && answered >= planned,
           }
         : null,
     });
-  });
+  }));
 
-  app.post('/api/plays/:id/survey', (req, res) => {
-    const user = requireRole(req, res, 'student');
+  app.post('/api/plays/:id/survey', route(async (req, res) => {
+    const user = await requireRole(req, res, 'student');
     if (!user) return;
-    const play = db.prepare('SELECT * FROM plays WHERE id = ?').get(intId(req.params.id));
+    const play = await db.get('select * from plays where id = ?', intId(req.params.id));
     if (!play || play.student_id !== user.id || play.status !== 'finished') {
       return res.status(404).json({ error: 'Finish a round before the checkup.' });
     }
@@ -742,30 +831,39 @@ export function mountApi(app, db) {
       ? req.body.difficulty
       : null;
     const skipped = req.body?.skipped ? 1 : 0;
-    const existing = db.prepare('SELECT id FROM surveys WHERE play_id = ?').get(play.id);
+    const existing = await db.get('select id from surveys where play_id = ?', play.id);
     if (existing) {
-      db.prepare('UPDATE surveys SET liked = ?, difficulty = ?, skipped = ? WHERE play_id = ?').run(
+      await db.run(
+        'update surveys set liked = ?, difficulty = ?, skipped = ? where play_id = ?',
         liked,
         difficulty,
         skipped,
         play.id,
       );
     } else {
-      db.prepare(
-        `INSERT INTO surveys (play_id, student_id, liked, difficulty, skipped, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(play.id, user.id, liked, difficulty, skipped, nowIso());
+      await db.run(
+        `insert into surveys (play_id, student_id, liked, difficulty, skipped, created_at)
+         values (?, ?, ?, ?, ?, ?)`,
+        play.id,
+        user.id,
+        liked,
+        difficulty,
+        skipped,
+        nowIso(),
+      );
     }
     res.json({ ok: true, liked, difficulty, skipped: !!skipped });
-  });
+  }));
 
-  function checkQuestionsFor(setId) {
-    const checks = db.prepare(
-      `SELECT * FROM questions WHERE set_id = ? AND kind = 'check' ORDER BY sort_order`,
-    ).all(setId);
-    const plays = db.prepare(
-      `SELECT * FROM questions WHERE set_id = ? AND kind = 'play' ORDER BY sort_order`,
-    ).all(setId);
+  async function checkQuestionsFor(setId) {
+    const checks = await db.all(
+      `select * from questions where set_id = ? and kind = 'check' order by sort_order`,
+      setId,
+    );
+    const plays = await db.all(
+      `select * from questions where set_id = ? and kind = 'play' order by sort_order`,
+      setId,
+    );
     const chosen = [];
     const seen = new Set();
     for (const question of checks) {
@@ -782,20 +880,20 @@ export function mountApi(app, db) {
     return chosen.slice(0, 8);
   }
 
-  function ensureCheckDeals(play) {
-    const existing = db.prepare(
-      `SELECT * FROM play_deals WHERE play_id = ? AND kind = 'check' ORDER BY position`,
-    ).all(play.id);
-    if (existing.length) return existing;
-    const assignment = loadAssignment(play.assignment_id);
-    const questions = checkQuestionsFor(assignment.set_id);
-    const insert = db.prepare(
-      `INSERT INTO play_deals (play_id, question_id, kind, position, prompt, choices_json, correct_index)
-       VALUES (?, ?, 'check', ?, ?, ?, ?)`,
+  async function ensureCheckDeals(play) {
+    const existing = await db.all(
+      `select * from play_deals where play_id = ? and kind = 'check' order by position`,
+      play.id,
     );
-    questions.forEach((question, position) => {
+    if (existing.length) return existing;
+    const assignment = await loadAssignment(play.assignment_id);
+    const questions = await checkQuestionsFor(assignment.set_id);
+    for (let position = 0; position < questions.length; position += 1) {
+      const question = questions[position];
       const dealt = dealChoices(question);
-      insert.run(
+      await db.run(
+        `insert into play_deals (play_id, question_id, kind, position, prompt, choices_json, correct_index)
+         values (?, ?, 'check', ?, ?, ?, ?)`,
         play.id,
         question.id,
         position,
@@ -803,21 +901,22 @@ export function mountApi(app, db) {
         JSON.stringify(dealt.choices),
         dealt.correctIndex,
       );
-    });
-    return db.prepare(
-      `SELECT * FROM play_deals WHERE play_id = ? AND kind = 'check' ORDER BY position`,
-    ).all(play.id);
+    }
+    return db.all(
+      `select * from play_deals where play_id = ? and kind = 'check' order by position`,
+      play.id,
+    );
   }
 
-  app.get('/api/plays/:id/checkup', (req, res) => {
-    const user = requireRole(req, res, 'student');
+  app.get('/api/plays/:id/checkup', route(async (req, res) => {
+    const user = await requireRole(req, res, 'student');
     if (!user) return;
-    const play = db.prepare('SELECT * FROM plays WHERE id = ?').get(intId(req.params.id));
+    const play = await db.get('select * from plays where id = ?', intId(req.params.id));
     if (!play || play.student_id !== user.id || play.status !== 'finished') {
       return res.status(404).json({ error: 'Finish a round before the checkup.' });
     }
-    const deals = ensureCheckDeals(play);
-    const answers = db.prepare('SELECT * FROM check_answers WHERE play_id = ?').all(play.id);
+    const deals = await ensureCheckDeals(play);
+    const answers = await db.all('select * from check_answers where play_id = ?', play.id);
     const byQuestion = new Map(answers.map((answer) => [answer.question_id, answer]));
     res.json({
       questions: deals.map(dealView),
@@ -828,7 +927,7 @@ export function mountApi(app, db) {
           const choices = choicesOf(deal);
           return {
             questionId: deal.question_id,
-            correct: !!answer.correct,
+            correct: !!Number(answer.correct),
             correctIndex: deal.correct_index,
             correctText: choices[deal.correct_index],
             choiceIndex: answer.choice_index,
@@ -836,12 +935,12 @@ export function mountApi(app, db) {
         }),
       total: deals.length,
     });
-  });
+  }));
 
-  app.post('/api/plays/:id/checkup', (req, res) => {
-    const user = requireRole(req, res, 'student');
+  app.post('/api/plays/:id/checkup', route(async (req, res) => {
+    const user = await requireRole(req, res, 'student');
     if (!user) return;
-    const play = db.prepare('SELECT * FROM plays WHERE id = ?').get(intId(req.params.id));
+    const play = await db.get('select * from plays where id = ?', intId(req.params.id));
     if (!play || play.student_id !== user.id || play.status !== 'finished') {
       return res.status(404).json({ error: 'Finish a round before the checkup.' });
     }
@@ -850,38 +949,52 @@ export function mountApi(app, db) {
     if (!questionId || !Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex > 3) {
       return res.status(400).json({ error: 'Pick one of the answers.' });
     }
-    const deals = ensureCheckDeals(play);
+    const deals = await ensureCheckDeals(play);
     const deal = deals.find((item) => item.question_id === questionId);
     if (!deal) return res.status(400).json({ error: 'That question is not in this checkup.' });
-    const existing = db.prepare(
-      'SELECT * FROM check_answers WHERE play_id = ? AND question_id = ?',
-    ).get(play.id, questionId);
+    const existing = await db.get(
+      'select * from check_answers where play_id = ? and question_id = ?',
+      play.id,
+      questionId,
+    );
     const choices = choicesOf(deal);
     if (existing) {
-      const totals = db.prepare(
-        'SELECT COALESCE(SUM(correct), 0) AS correct, COUNT(*) AS total FROM check_answers WHERE play_id = ?',
-      ).get(play.id);
-      return res.json({
-        correct: !!existing.correct,
+      const totals = await db.get(
+        'select coalesce(sum(correct), 0)::int as correct, count(*)::int as total from check_answers where play_id = ?',
+        play.id,
+      );
+      res.json({
+        correct: !!Number(existing.correct),
         correctIndex: deal.correct_index,
         correctText: choices[deal.correct_index],
         correctCount: Number(totals.correct),
         total: deals.length,
         done: Number(totals.total) >= deals.length,
       });
+      return;
     }
-    const answeredCount = db.prepare('SELECT COUNT(*) AS n FROM check_answers WHERE play_id = ?').get(play.id).n;
-    if (deal.position !== answeredCount) {
+    const answeredCount = count(await db.get(
+      'select count(*)::int as n from check_answers where play_id = ?',
+      play.id,
+    ));
+    if (Number(deal.position) !== answeredCount) {
       return res.status(400).json({ error: 'Answer the question on the screen.' });
     }
-    const correct = choiceIndex === deal.correct_index ? 1 : 0;
-    db.prepare(
-      `INSERT INTO check_answers (play_id, question_id, prompt, choice_index, correct_index, correct)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(play.id, questionId, deal.prompt, choiceIndex, deal.correct_index, correct);
-    const totals = db.prepare(
-      'SELECT COALESCE(SUM(correct), 0) AS correct, COUNT(*) AS total FROM check_answers WHERE play_id = ?',
-    ).get(play.id);
+    const correct = choiceIndex === Number(deal.correct_index) ? 1 : 0;
+    await db.run(
+      `insert into check_answers (play_id, question_id, prompt, choice_index, correct_index, correct)
+       values (?, ?, ?, ?, ?, ?)`,
+      play.id,
+      questionId,
+      deal.prompt,
+      choiceIndex,
+      deal.correct_index,
+      correct,
+    );
+    const totals = await db.get(
+      'select coalesce(sum(correct), 0)::int as correct, count(*)::int as total from check_answers where play_id = ?',
+      play.id,
+    );
     res.json({
       correct: !!correct,
       correctIndex: deal.correct_index,
@@ -890,49 +1003,56 @@ export function mountApi(app, db) {
       total: deals.length,
       done: Number(totals.total) >= deals.length,
     });
-  });
+  }));
 
-  app.get('/api/results/:id', (req, res) => {
-    const user = requireRole(req, res, 'teacher');
+  app.get('/api/results/:id', route(async (req, res) => {
+    const user = await requireRole(req, res, 'teacher');
     if (!user) return;
-    const assignment = loadAssignment(intId(req.params.id));
+    const assignment = await loadAssignment(intId(req.params.id));
     if (!assignment || assignment.teacher_id !== user.id) {
       return res.status(404).json({ error: 'Those results could not be found.' });
     }
-    const klass = db.prepare('SELECT * FROM classes WHERE id = ?').get(assignment.class_id);
-    const students = db.prepare(
-      `SELECT id, display_name FROM users WHERE class_id = ? AND role = 'student' ORDER BY display_name COLLATE NOCASE`,
-    ).all(assignment.class_id);
-    const finished = db.prepare(
-      `SELECT * FROM plays WHERE assignment_id = ? AND status = 'finished' ORDER BY id DESC`,
-    ).all(assignment.id);
+    const klass = await db.get('select * from classes where id = ?', assignment.class_id);
+    const students = await db.all(
+      `select id, display_name from users where class_id = ? and role = 'student' order by lower(display_name)`,
+      assignment.class_id,
+    );
+    const finished = await db.all(
+      `select * from plays where assignment_id = ? and status = 'finished' order by id desc`,
+      assignment.id,
+    );
     const byStudent = new Map();
     for (const play of finished) {
       if (!byStudent.has(play.student_id)) byStudent.set(play.student_id, []);
       byStudent.get(play.student_id).push(play);
     }
 
-    const roster = students.map((student) => {
+    const roster = [];
+    for (const student of students) {
       const plays = byStudent.get(student.id) || [];
       if (!plays.length) {
-        return { studentId: student.id, name: student.display_name, played: false };
+        roster.push({ studentId: student.id, name: student.display_name, played: false });
+        continue;
       }
       const latest = plays[0];
       const best = plays.reduce((winner, play) => (play.score > winner.score ? play : winner), plays[0]);
-      const checkPlay = db.prepare(
-        `SELECT p.id FROM plays p
-         JOIN check_answers c ON c.play_id = p.id
-         WHERE p.student_id = ? AND p.assignment_id = ? AND p.status = 'finished'
-         GROUP BY p.id ORDER BY p.id DESC LIMIT 1`,
-      ).get(student.id, assignment.id);
+      const checkPlay = await db.get(
+        `select p.id from plays p
+         join check_answers c on c.play_id = p.id
+         where p.student_id = ? and p.assignment_id = ? and p.status = 'finished'
+         group by p.id order by p.id desc limit 1`,
+        student.id,
+        assignment.id,
+      );
       let checkup = null;
       if (checkPlay) {
-        const totals = db.prepare(
-          'SELECT COALESCE(SUM(correct), 0) AS correct, COUNT(*) AS total FROM check_answers WHERE play_id = ?',
-        ).get(checkPlay.id);
+        const totals = await db.get(
+          'select coalesce(sum(correct), 0)::int as correct, count(*)::int as total from check_answers where play_id = ?',
+          checkPlay.id,
+        );
         checkup = { correct: Number(totals.correct), total: Number(totals.total) };
       }
-      return {
+      roster.push({
         studentId: student.id,
         name: student.display_name,
         played: true,
@@ -941,15 +1061,16 @@ export function mountApi(app, db) {
         bestStars: best.stars,
         lastPlayed: latest.finished_at,
         checkup,
-      };
-    });
+      });
+    }
 
-    const surveyRows = db.prepare(
-      `SELECT s.liked, s.difficulty, s.student_id
-       FROM surveys s JOIN plays p ON p.id = s.play_id
-       WHERE p.assignment_id = ? AND p.status = 'finished'
-       ORDER BY s.play_id DESC`,
-    ).all(assignment.id);
+    const surveyRows = await db.all(
+      `select s.liked, s.difficulty, s.student_id
+       from surveys s join plays p on p.id = s.play_id
+       where p.assignment_id = ? and p.status = 'finished'
+       order by s.play_id desc`,
+      assignment.id,
+    );
     const seen = new Set();
     const liked = { not_much: 0, okay: 0, loved: 0 };
     const difficulty = { too_easy: 0, just_right: 0, too_hard: 0 };
@@ -963,18 +1084,20 @@ export function mountApi(app, db) {
       if (row.difficulty) difficulty[row.difficulty] += 1;
     }
 
-    const checks = db.prepare(
-      `WITH latest AS (
-         SELECT p.student_id AS student_id, MAX(p.id) AS play_id
-         FROM plays p JOIN check_answers c ON c.play_id = p.id
-         WHERE p.assignment_id = ? AND p.status = 'finished'
-         GROUP BY p.student_id
+    const checkRows = await db.all(
+      `with latest as (
+         select p.student_id as student_id, max(p.id) as play_id
+         from plays p join check_answers c on c.play_id = p.id
+         where p.assignment_id = ? and p.status = 'finished'
+         group by p.student_id
        )
-       SELECT c.prompt AS prompt, SUM(c.correct) AS correct, COUNT(*) AS total
-       FROM check_answers c JOIN latest l ON l.play_id = c.play_id
-       GROUP BY c.prompt
-       ORDER BY MIN(c.id)`,
-    ).all(assignment.id).map((row) => ({
+       select c.prompt as prompt, sum(c.correct)::int as correct, count(*)::int as total
+       from check_answers c join latest l on l.play_id = c.play_id
+       group by c.prompt
+       order by min(c.id)`,
+      assignment.id,
+    );
+    const checks = checkRows.map((row) => ({
       prompt: row.prompt,
       correct: Number(row.correct),
       total: Number(row.total),
@@ -995,10 +1118,10 @@ export function mountApi(app, db) {
         classSize: students.length,
         studentsPlayed: players.length,
         avgBestScore: players.length
-          ? Math.round(players.reduce((sum, row) => sum + row.bestScore, 0) / players.length)
+          ? Math.round(players.reduce((sum, row) => sum + Number(row.bestScore), 0) / players.length)
           : 0,
         avgStars: players.length
-          ? Math.round((players.reduce((sum, row) => sum + row.bestStars, 0) / players.length) * 10) / 10
+          ? Math.round((players.reduce((sum, row) => sum + Number(row.bestStars), 0) / players.length) * 10) / 10
           : 0,
         surveyStudents,
         checkPercent: checkTotal ? Math.round((checkCorrect / checkTotal) * 100) : null,
@@ -1008,7 +1131,7 @@ export function mountApi(app, db) {
       checks,
       roster,
     });
-  });
+  }));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Not found.' });

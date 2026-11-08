@@ -15,7 +15,9 @@ npm run dev
 
 Open http://127.0.0.1:5173
 
-Accounts, classes, question sets, scores, and checkups are stored in `data/kidsblast.sqlite`. That file is created on first launch and filled with the demo class. Delete it if you want a fresh seed.
+Accounts, classes, question sets, scores, and checkups are stored locally in `data/pglite`. That folder is created on first launch and filled with the demo class. Delete it if you want a fresh seed. Nothing to configure, and no password file.
+
+When this app is hosted, the same class data is shared in its Postgres database so a teacher and students can play from different devices.
 
 To serve the built app:
 

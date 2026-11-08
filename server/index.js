@@ -9,8 +9,9 @@ const root = path.join(__dirname, '..');
 const isProd = process.env.NODE_ENV === 'production';
 const port = Number(process.env.PORT) || 5173;
 
-const db = openDatabase(path.join(root, 'data', 'kidsblast.sqlite'));
+const db = await openDatabase();
 const app = express();
+app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '64kb' }));
 mountApi(app, db);
@@ -37,7 +38,7 @@ app.use((error, _req, res, _next) => {
     res.status(400).json({ error: 'That did not look right.' });
     return;
   }
-  console.error(error);
+  console.error(error instanceof Error ? error.message : 'request failed');
   if (!res.headersSent) res.status(500).json({ error: 'Something went wrong.' });
 });
 
