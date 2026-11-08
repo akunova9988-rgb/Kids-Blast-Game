@@ -68,7 +68,7 @@ export function SoundToggle() {
         if (next) tone('ok');
       }}
     >
-      {on ? 'Sound on' : 'Sound off'}
+      {on ? 'Звук' : 'Тихо'}
     </button>
   );
 }

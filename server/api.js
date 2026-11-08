@@ -20,7 +20,7 @@ import {
 } from './logic.js';
 
 const hits = new Map();
-const DEMO_USERS = new Set(['ms-nova', 'luna', 'kai', 'rio']);
+const DEMO_USERS = new Set(['luna', 'kai', 'rio']);
 
 function route(fn) {
   return (req, res, next) => {
@@ -240,7 +240,9 @@ export function mountApi(app, db) {
       return res.status(404).json({ error: 'Pick a name on the sign-in screen.' });
     }
     const user = await db.get('select * from users where username = ?', username);
-    if (!user) return res.status(404).json({ error: 'That demo player is not here.' });
+    if (!user || user.role !== 'student') {
+      return res.status(404).json({ error: 'That demo player is not here.' });
+    }
     await startSession(res, req, user);
     res.json({ user: publicUser(user) });
   }));

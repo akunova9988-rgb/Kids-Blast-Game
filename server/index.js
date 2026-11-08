@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { openDatabase } from './db.js';
 import { mountApi } from './api.js';
+import { sendSupabaseConfig } from './supabaseConfig.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -14,6 +15,9 @@ const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '64kb' }));
+
+app.get('/api/supabase-config', sendSupabaseConfig);
+
 mountApi(app, db);
 
 if (isProd) {

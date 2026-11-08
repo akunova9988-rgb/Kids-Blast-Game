@@ -4,7 +4,6 @@ import { useTitle } from '../nav.js';
 import { Banner, Field, Rocket, SoundToggle } from '../ui.jsx';
 
 const DEMOS = [
-  { label: 'Ms. Nova', detail: 'Teacher', username: 'ms-nova' },
   { label: 'Luna', detail: 'Student', username: 'luna' },
   { label: 'Kai', detail: 'Student', username: 'kai' },
   { label: 'Rio', detail: 'Student', username: 'rio' },
