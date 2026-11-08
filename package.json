@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",
+    "@supabase/supabase-js": "^2.119.0",
     "@vitejs/plugin-react": "^4.3.4",
     "express": "^4.21.2",
     "pg": "^8.16.3",

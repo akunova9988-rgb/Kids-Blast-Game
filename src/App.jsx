@@ -4,18 +4,13 @@ import { go, usePath } from './nav.js';
 import { Auth } from './screens/Auth.jsx';
 import { Checkup } from './screens/Checkup.jsx';
 import { Game } from './screens/Game.jsx';
-import { InstantPlay } from './screens/InstantPlay.jsx';
+import { Accounts } from './screens/Accounts.jsx';
 import { RoundResults } from './screens/RoundResults.jsx';
 import { SetEditor } from './screens/SetEditor.jsx';
 import { StudentHome } from './screens/StudentHome.jsx';
 import { TeacherHome } from './screens/TeacherHome.jsx';
 import { TeacherResults } from './screens/TeacherResults.jsx';
 import { SoundToggle } from './ui.jsx';
-
-const STAR_SPOTS = [
-  [8, 12], [18, 28], [30, 8], [46, 18], [62, 6], [74, 22],
-  [88, 14], [12, 70], [92, 48], [40, 78], [68, 64], [24, 46],
-];
 
 function piece(path, prefix) {
   if (!path.startsWith(prefix)) return null;
@@ -28,9 +23,6 @@ function Sky() {
     <div className="sky" aria-hidden="true">
       <span className="planet-peach" />
       <span className="planet-teal" />
-      {STAR_SPOTS.map(([x, y]) => (
-        <i key={`${x}-${y}`} className="star-dot" style={{ left: `${x}%`, top: `${y}%` }} />
-      ))}
     </div>
   );
 }
@@ -46,9 +38,9 @@ export function App() {
       <>
         <Sky />
         <div className="shell arcade-shell">
-          <a className="skip" href="#main">Skip to content</a>
+          <a className="skip" href="#main">К содержанию</a>
           <main id="main">
-            <InstantPlay />
+            <Accounts />
           </main>
         </div>
       </>
