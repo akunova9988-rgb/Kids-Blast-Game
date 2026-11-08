@@ -110,7 +110,7 @@ export function SetEditor({ setId }) {
   if (!set) return <p className="boot">{error || 'Loading the set…'}</p>;
 
   return (
-    <form className="stack" onSubmit={save}>
+    <form className="stack" noValidate onSubmit={save}>
       <button type="button" className="text-link" onClick={() => go('/class')}>Back to class</button>
       <h1 className="page-title">{isNew ? 'New question set' : 'Edit question set'}</h1>
       <Banner>{error}</Banner>

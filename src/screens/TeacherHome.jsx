@@ -67,7 +67,7 @@ export function TeacherHome({ user }) {
       <section className="card">
         {home.class ? (
           <>
-            <form onSubmit={saveClass} className="stack">
+            <form onSubmit={saveClass} className="stack" noValidate>
               <Field label="Class name">
                 <input value={className} onChange={(event) => setClassName(event.target.value)} maxLength={32} required />
               </Field>
@@ -87,7 +87,7 @@ export function TeacherHome({ user }) {
             </p>
           </>
         ) : (
-          <form onSubmit={saveClass} className="stack">
+          <form onSubmit={saveClass} className="stack" noValidate>
             <h2>Name your class</h2>
             <Field label="Class name" hint="Example: Room 2 Rockets">
               <input value={className} onChange={(event) => setClassName(event.target.value)} maxLength={32} required />

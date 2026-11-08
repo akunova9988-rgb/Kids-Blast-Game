@@ -82,7 +82,7 @@ export function Auth({ onUser }) {
           <button type="button" role="tab" aria-selected={mode === 'in'} className={mode === 'in' ? 'is-on' : ''} onClick={() => setMode('in')}>Sign in</button>
           <button type="button" role="tab" aria-selected={mode === 'up'} className={mode === 'up' ? 'is-on' : ''} onClick={() => setMode('up')}>Create account</button>
         </div>
-        <form onSubmit={submit} className="stack">
+        <form onSubmit={submit} className="stack" noValidate>
           {mode === 'up' ? (
             <>
               <div className="segmented" role="group" aria-label="I am a">
@@ -98,7 +98,7 @@ export function Auth({ onUser }) {
             <input value={username} onChange={(event) => setUsername(event.target.value)} autoCapitalize="none" autoCorrect="off" maxLength={16} required autoComplete="username" />
           </Field>
           <Field label="Password" hint={mode === 'up' ? '4 or more letters. A class word is fine.' : null}>
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={mode === 'up' ? 4 : undefined} maxLength={32} required autoComplete={mode === 'in' ? 'current-password' : 'new-password'} />
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} maxLength={32} autoComplete={mode === 'in' ? 'current-password' : 'new-password'} />
           </Field>
           {mode === 'up' && role === 'student' ? (
             <Field label="Class code" hint="Optional. You can join later. The demo code is STAR2.">

@@ -123,13 +123,18 @@ function SignForm({ client, ready }) {
     setError('');
     setNote('');
     try {
+      const cleanEmail = email.trim();
+      if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+        throw new Error('Введи почту, например luna@mail.ru.');
+      }
+      if (!password) throw new Error('Введи пароль.');
       if (!client) {
         throw new Error(ready
           ? 'Вход сейчас недоступен: кабинет не подключён.'
           : 'Подключаемся. Нажми ещё раз.');
       }
       if (mode === 'in') {
-        const { error: signError } = await client.auth.signInWithPassword({ email: email.trim(), password });
+        const { error: signError } = await client.auth.signInWithPassword({ email: cleanEmail, password });
         if (signError) throw signError;
         return;
       }
@@ -139,7 +144,7 @@ function SignForm({ client, ready }) {
       const code = classCode.trim().toUpperCase();
       if (role === 'student' && code.length < 4) throw new Error('Введи код класса от учителя.');
       const { data, error: signError } = await client.auth.signUp({
-        email: email.trim(),
+        email: cleanEmail,
         password,
         options: {
           data: {
@@ -169,14 +174,14 @@ function SignForm({ client, ready }) {
     <section className="card stack auth-card sky-card">
       <p className="kicker">Kids Blast</p>
       <h1>{mode === 'in' ? 'Вход' : 'Регистрация'}</h1>
-      <form className="stack" onSubmit={submit}>
+      <form className="stack" noValidate onSubmit={submit}>
         {mode === 'up' ? (
           <Field label="Имя">
-            <input value={name} onChange={(event) => setName(event.target.value)} maxLength={24} required />
+            <input value={name} onChange={(event) => setName(event.target.value)} maxLength={24} autoComplete="nickname" />
           </Field>
         ) : null}
         <Field label="Email">
-          <input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <input type="text" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
         </Field>
         <Field label="Пароль">
           <input
@@ -184,7 +189,6 @@ function SignForm({ client, ready }) {
             autoComplete={mode === 'in' ? 'current-password' : 'new-password'}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            required
           />
         </Field>
         {mode === 'up' ? (
@@ -200,7 +204,6 @@ function SignForm({ client, ready }) {
                   onChange={(event) => setClassCode(event.target.value.toUpperCase())}
                   autoCapitalize="characters"
                   maxLength={8}
-                  required
                 />
               </Field>
             ) : (

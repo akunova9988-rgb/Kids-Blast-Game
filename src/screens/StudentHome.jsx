@@ -36,7 +36,7 @@ export function StudentHome({ user }) {
 
   if (!home.class) {
     return (
-      <form className="card stack narrow" onSubmit={join}>
+      <form className="card stack narrow" noValidate onSubmit={join}>
         <p className="kicker">Hi, {user.displayName}</p>
         <h1 className="page-title ink">Join your class</h1>
         <Field label="Class code" hint="Ask your teacher. The demo code is STAR2.">
