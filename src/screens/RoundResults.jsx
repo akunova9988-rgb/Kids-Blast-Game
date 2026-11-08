@@ -23,7 +23,7 @@ export function RoundResults({ playId }) {
     return (
       <div className="card stack">
         <Banner>{error}</Banner>
-        {!error ? <p>Counting your stars…</p> : <button type="button" className="btn" onClick={() => go('/')}>Back to games</button>}
+        {!error ? <p>Counting your stars…</p> : <button type="button" className="btn" onClick={() => go('/class')}>Back to games</button>}
       </div>
     );
   }
@@ -50,7 +50,7 @@ export function RoundResults({ playId }) {
               Quick checkup
             </button>
           )}
-          <button type="button" className="btn" onClick={() => go('/')}>Back to games</button>
+          <button type="button" className="btn" onClick={() => go('/class')}>Back to games</button>
         </div>
         <p className="muted">The checkup is optional. 8 short questions show what you learned.</p>
       </section>

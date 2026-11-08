@@ -100,7 +100,7 @@ export function SetEditor({ setId }) {
     }
     try {
       await api(`/api/sets/${set.id}`, { method: 'DELETE' });
-      go('/');
+      go('/class');
     } catch (err) {
       setError(err.message);
       setConfirmDelete(false);
@@ -111,7 +111,7 @@ export function SetEditor({ setId }) {
 
   return (
     <form className="stack" onSubmit={save}>
-      <button type="button" className="text-link" onClick={() => go('/')}>Back to class</button>
+      <button type="button" className="text-link" onClick={() => go('/class')}>Back to class</button>
       <h1 className="page-title">{isNew ? 'New question set' : 'Edit question set'}</h1>
       <Banner>{error}</Banner>
       <Banner kind="ok">{note}</Banner>

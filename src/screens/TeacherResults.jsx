@@ -31,7 +31,7 @@ export function TeacherResults({ assignmentId }) {
 
   return (
     <div className="stack">
-      <button type="button" className="text-link" onClick={() => go('/')}>Back to class</button>
+      <button type="button" className="text-link" onClick={() => go('/class')}>Back to class</button>
       <p className="kicker on-night">{data.game.className} · {data.game.topic}</p>
       <h1 className="page-title">{data.game.title}</h1>
       <Banner>{error}</Banner>

@@ -168,7 +168,7 @@ export function Game({ assignmentId }) {
     return (
       <div className="card stack">
         <Banner>{error}</Banner>
-        <button type="button" className="btn" onClick={() => go('/')}>Back to games</button>
+        <button type="button" className="btn" onClick={() => go('/class')}>Back to games</button>
       </div>
     );
   }
@@ -269,11 +269,11 @@ export function Game({ assignmentId }) {
           <p>Leave this round? Stars are saved when you finish.</p>
           <div className="row-actions">
             <button type="button" className="btn primary" onClick={() => setLeaving(false)}>Stay</button>
-            <button type="button" className="btn" onClick={() => go('/')}>Leave</button>
+            <button type="button" className="btn" onClick={() => go('/class')}>Leave</button>
           </div>
         </div>
       ) : (
-        <button type="button" className="text-link" onClick={() => (phase === 'ready' ? go('/') : setLeaving(true))}>
+        <button type="button" className="text-link" onClick={() => (phase === 'ready' ? go('/class') : setLeaving(true))}>
           Exit
         </button>
       )}

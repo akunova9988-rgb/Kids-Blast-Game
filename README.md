@@ -13,7 +13,9 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173
+Open http://127.0.0.1:5173 and a round starts right away. Tap an asteroid, or press 1, 2, 3, or 4. The same page fits a phone, a tablet, and a computer.
+
+The classroom, with sign-in and class results, is at http://127.0.0.1:5173/class when you run the app yourself.
 
 Accounts, classes, question sets, scores, and checkups are stored locally in `data/pglite`. That folder is created on first launch and filled with the demo class. Delete it if you want a fresh seed. Nothing to configure, and no password file.
 

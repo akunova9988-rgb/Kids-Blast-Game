@@ -72,7 +72,7 @@ export function Checkup({ playId }) {
     setError('');
     try {
       await saveSurvey(!liked && !difficulty);
-      go('/');
+      go('/class');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -125,7 +125,7 @@ export function Checkup({ playId }) {
     return (
       <div className="card stack">
         <Banner>{error}</Banner>
-        <button type="button" className="btn" onClick={() => go('/')}>Back to games</button>
+        <button type="button" className="btn" onClick={() => go('/class')}>Back to games</button>
       </div>
     );
   }
@@ -145,7 +145,7 @@ export function Checkup({ playId }) {
         <h1>{summary.total ? `${summary.correct} of ${summary.total}` : 'All done'}</h1>
         <p className="feedback-title">{kind}</p>
         <p>Your teacher can see how the class did. Not as a gotcha. Just to help.</p>
-        <button type="button" className="btn primary" onClick={() => go('/')}>Back to games</button>
+        <button type="button" className="btn primary" onClick={() => go('/class')}>Back to games</button>
       </section>
     );
   }
