@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Math Quiz</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --purple: #6C63FF;
+      --blue: #4FC3F7;
+      --bg: #F8F9FF;
+      --white: #ffffff;
+      --shadow: 0 8px 32px rgba(108,99,255,0.15);
+    }
+
+    body {
+      font-family: 'Nunito', sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Floating math symbols */
+    .math-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .sym {
+      position: absolute;
+      font-size: 2rem;
+      font-weight: 800;
+      opacity: 0.08;
+      color: var(--purple);
+      animation: floatSym linear infinite;
+      user-select: none;
+    }
+
+    @keyframes floatSym {
+      0%   { transform: translateY(110vh) rotate(0deg); opacity: 0; }
+      10%  { opacity: 0.08; }
+      90%  { opacity: 0.08; }
+      100% { transform: translateY(-15vh) rotate(360deg); opacity: 0; }
+    }
+
+    /* Hero content */
+    .hero {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2.5rem;
+    }
+
+    .logo-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .logo-icon {
+      font-size: 5rem;
+      line-height: 1;
+      animation: pulse 2.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50%       { transform: scale(1.08); }
+    }
+
+    h1 {
+      font-size: clamp(2.8rem, 8vw, 5rem);
+      font-weight: 900;
+      background: linear-gradient(135deg, var(--purple), var(--blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -1px;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      font-size: clamp(1rem, 3vw, 1.3rem);
+      color: #888;
+      font-weight: 600;
+    }
+
+    /* Geometric decorations */
+    .geo {
+      position: fixed;
+      border-radius: 50%;
+      z-index: 0;
+      opacity: 0.07;
+    }
+    .geo-1 { width: 350px; height: 350px; background: var(--purple); top: -100px; left: -100px; }
+    .geo-2 { width: 250px; height: 250px; background: var(--blue);   bottom: -80px; right: -80px; }
+    .geo-3 { width: 150px; height: 150px; background: var(--purple); top: 50%; right: 5%; border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%; }
+
+    /* Buttons */
+    .btn-group {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 1.1rem 2.4rem;
+      border: none;
+      border-radius: 20px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 1.15rem;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+      outline: none;
+    }
+
+    .btn-teacher {
+      background: linear-gradient(135deg, var(--purple), #9b55ff);
+      color: #fff;
+      box-shadow: 0 6px 24px rgba(108,99,255,0.4);
+    }
+
+    .btn-student {
+      background: linear-gradient(135deg, var(--blue), #0288D1);
+      color: #fff;
+      box-shadow: 0 6px 24px rgba(79,195,247,0.4);
+    }
+
+    .btn:hover {
+      transform: translateY(-4px) scale(1.03);
+      box-shadow: 0 12px 32px rgba(108,99,255,0.35);
+    }
+
+    .btn-student:hover {
+      box-shadow: 0 12px 32px rgba(79,195,247,0.4);
+    }
+
+    .btn .icon { font-size: 1.4rem; }
+
+    /* Stats strip */
+    .stats {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 0.5rem;
+    }
+
+    .stat-card {
+      background: var(--white);
+      border-radius: 16px;
+      padding: 1rem 1.6rem;
+      box-shadow: var(--shadow);
+      text-align: center;
+      min-width: 110px;
+    }
+
+    .stat-num {
+      font-size: 1.8rem;
+      font-weight: 900;
+      color: var(--purple);
+    }
+
+    .stat-label {
+      font-size: 0.8rem;
+      color: #aaa;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    @media (max-width: 480px) {
+      .btn-group { flex-direction: column; align-items: stretch; }
+      .btn { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Geometric background shapes -->
+  <div class="geo geo-1"></div>
+  <div class="geo geo-2"></div>
+  <div class="geo geo-3"></div>
+
+  <!-- Floating math symbols -->
+  <div class="math-bg" id="mathBg"></div>
+
+  <!-- Hero -->
+  <main class="hero">
+    <div class="logo-wrap">
+      <div class="logo-icon">🧮</div>
+      <h1>MATH QUIZ</h1>
+      <p class="subtitle">Интерактивная математическая викторина</p>
+    </div>
+
+    <div class="btn-group">
+      <a href="teacher.html" class="btn btn-teacher">
+        <span class="icon">👩‍🏫</span> Кабинет учителя
+      </a>
+      <a href="student.html" class="btn btn-student">
+        <span class="icon">🎓</span> Кабинет ученика
+      </a>
+    </div>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-num">15</div>
+        <div class="stat-label">Вопросов</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">30s</div>
+        <div class="stat-label">На вопрос</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">150</div>
+        <div class="stat-label">Макс. балл</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const SYMBOLS = ['π', 'Σ', '√', '∫', '∞', 'Δ', 'α', 'β', 'θ', '±', '×', '÷', '%', '∂', '∑', '≈', '≠', '≤', '≥'];
+    const bg = document.getElementById('mathBg');
+
+    function spawnSym() {
+      const el = document.createElement('span');
+      el.className = 'sym';
+      el.textContent = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
+      el.style.left = Math.random() * 100 + 'vw';
+      const duration = 8 + Math.random() * 14;
+      el.style.animationDuration = duration + 's';
+      el.style.animationDelay = '-' + (Math.random() * duration) + 's';
+      el.style.fontSize = (1.5 + Math.random() * 3) + 'rem';
+      bg.appendChild(el);
+      setTimeout(() => el.remove(), duration * 1000);
+    }
+
+    // Initial batch
+    for (let i = 0; i < 20; i++) spawnSym();
+    setInterval(spawnSym, 800);
+  </script>
+</body>
+</html>
