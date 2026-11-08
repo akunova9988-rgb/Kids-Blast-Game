@@ -1,13 +1,11 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { dbSet, dbGet } from "../firebase";
+import { addStudent, getSettings } from "../firebase";
 import MathBackground from "../components/MathBackground";
 import styles from "./Student.module.css";
 
 export default function Student() {
-  const { quizSettings, saveStudentSession } = useApp();
-  const navigate = useNavigate();
+  const { quizSettings, saveStudentSession, navigate } = useApp();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -19,8 +17,8 @@ export default function Student() {
     setLoading(true);
     setError("");
 
-    // Re-fetch settings to get the latest code
-    const settings = await dbGet("quiz/settings");
+    // Re-fetch latest settings for authoritative code check
+    const settings = await getSettings();
     const currentCode = settings?.code || quizSettings.code;
     const isActive = settings?.isActive ?? quizSettings.isActive;
 
@@ -36,8 +34,8 @@ export default function Student() {
       return;
     }
 
-    // Register student
-    const studentData = {
+    const id = `student_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    await addStudent(id, {
       name: name.trim(),
       joinedAt: Date.now(),
       status: "waiting",
@@ -45,13 +43,10 @@ export default function Student() {
       score: 0,
       correctCount: 0,
       timeSeconds: 0,
-    };
-
-    const id = `student_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    await dbSet(`quiz/students/${id}`, studentData);
+    });
 
     saveStudentSession({ id, name: name.trim() });
-    navigate("/quiz");
+    navigate("quiz");
     setLoading(false);
   }
 
@@ -59,7 +54,7 @@ export default function Student() {
     <div className={styles.page}>
       <MathBackground />
       <div className={`card ${styles.joinCard} anim-scale-in`}>
-        <button className={styles.backBtn} onClick={() => navigate("/")}>← Назад</button>
+        <button className={styles.backBtn} onClick={() => navigate("home")}>← Назад</button>
 
         <div className={styles.logoArea}>
           <span className={styles.logo}>🎓</span>
@@ -85,7 +80,7 @@ export default function Student() {
             <input
               className="input"
               type="text"
-              placeholder="Введите код (напр. MATH2026)"
+              placeholder="Например: MATH2026"
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
               maxLength={12}

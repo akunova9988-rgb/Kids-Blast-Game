@@ -1,5 +1,10 @@
-import { createContext, useContext, useState, useEffect } from "react";
-import { dbGet, dbSet, dbSubscribe } from "../firebase";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import {
+  getSettings,
+  saveSettings,
+  subscribeSettings,
+  subscribeStudents,
+} from "../firebase";
 import { DEFAULT_QUESTIONS } from "../questions";
 
 const AppContext = createContext(null);
@@ -7,48 +12,55 @@ const AppContext = createContext(null);
 const DEFAULT_SETTINGS = {
   code: "MATH2026",
   isActive: true,
+  questions: DEFAULT_QUESTIONS,
 };
 
+// ── View state machine ─────────────────────────────────────────────────────
+// 'home' | 'teacher-login' | 'teacher-dashboard' | 'student-login' | 'quiz' | 'results'
+
 export function AppProvider({ children }) {
+  const [view, setView] = useState("home");
+  const [viewData, setViewData] = useState(null); // extra data for current view
+
   const [teacherLoggedIn, setTeacherLoggedIn] = useState(
     () => sessionStorage.getItem("teacher_auth") === "true"
   );
   const [quizSettings, setQuizSettings] = useState(DEFAULT_SETTINGS);
-  const [questions, setQuestions] = useState(DEFAULT_QUESTIONS);
   const [students, setStudents] = useState({});
   const [studentSession, setStudentSession] = useState(
     () => JSON.parse(sessionStorage.getItem("student_session") || "null")
   );
 
-  // Subscribe to quiz settings in real-time
+  // Subscribe to settings
   useEffect(() => {
-    const unsub = dbSubscribe("quiz/settings", (val) => {
-      if (val) {
-        setQuizSettings({ code: val.code || DEFAULT_SETTINGS.code, isActive: val.isActive ?? true });
-        if (val.questions && Array.isArray(val.questions)) setQuestions(val.questions);
-      }
+    const unsub = subscribeSettings((val) => {
+      if (val) setQuizSettings({ ...DEFAULT_SETTINGS, ...val });
     });
     return unsub;
   }, []);
 
-  // Subscribe to students in real-time
+  // Subscribe to students
   useEffect(() => {
-    const unsub = dbSubscribe("quiz/students", (val) => {
-      setStudents(val || {});
-    });
+    const unsub = subscribeStudents(setStudents);
     return unsub;
   }, []);
 
-  // Initialize default settings on first load
+  // Seed default settings on first run
   useEffect(() => {
     (async () => {
-      const existing = await dbGet("quiz/settings");
-      if (!existing) {
-        await dbSet("quiz/settings", { ...DEFAULT_SETTINGS, questions: DEFAULT_QUESTIONS });
-      }
+      const existing = await getSettings();
+      if (!existing) await saveSettings(DEFAULT_SETTINGS);
     })();
   }, []);
 
+  // ── Navigation ─────────────────────────────────────────────────────────
+  const navigate = useCallback((target, data = null) => {
+    setView(target);
+    setViewData(data);
+    window.scrollTo(0, 0);
+  }, []);
+
+  // ── Teacher auth ───────────────────────────────────────────────────────
   function teacherLogin(username, password) {
     if (username === "teacher" && password === "Math2026!") {
       sessionStorage.setItem("teacher_auth", "true");
@@ -61,20 +73,23 @@ export function AppProvider({ children }) {
   function teacherLogout() {
     sessionStorage.removeItem("teacher_auth");
     setTeacherLoggedIn(false);
+    navigate("home");
   }
 
+  // ── Quiz settings ──────────────────────────────────────────────────────
   async function updateQuizCode(code) {
-    await dbSet("quiz/settings/code", code);
+    await saveSettings({ code });
   }
 
   async function updateIsActive(isActive) {
-    await dbSet("quiz/settings/isActive", isActive);
+    await saveSettings({ isActive });
   }
 
-  async function updateQuestions(newQuestions) {
-    await dbSet("quiz/settings/questions", newQuestions);
+  async function updateQuestions(questions) {
+    await saveSettings({ questions });
   }
 
+  // ── Student session ────────────────────────────────────────────────────
   function saveStudentSession(session) {
     sessionStorage.setItem("student_session", JSON.stringify(session));
     setStudentSession(session);
@@ -88,11 +103,13 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider
       value={{
+        view,
+        viewData,
+        navigate,
         teacherLoggedIn,
         teacherLogin,
         teacherLogout,
         quizSettings,
-        questions,
         students,
         updateQuizCode,
         updateIsActive,
@@ -109,6 +126,6 @@ export function AppProvider({ children }) {
 
 export function useApp() {
   const ctx = useContext(AppContext);
-  if (!ctx) throw new Error("useApp must be used within AppProvider");
+  if (!ctx) throw new Error("useApp must be used inside AppProvider");
   return ctx;
 }

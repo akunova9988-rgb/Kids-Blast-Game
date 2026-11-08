@@ -1,9 +1,9 @@
-import { useNavigate } from "react-router-dom";
+import { useApp } from "../context/AppContext";
 import MathBackground from "../components/MathBackground";
 import styles from "./Home.module.css";
 
 export default function Home() {
-  const navigate = useNavigate();
+  const { navigate } = useApp();
 
   return (
     <div className={styles.page}>
@@ -20,7 +20,7 @@ export default function Home() {
         <div className={`${styles.buttons} anim-fade-up`} style={{ animationDelay: "0.15s" }}>
           <button
             className={`${styles.bigBtn} ${styles.teacherBtn}`}
-            onClick={() => navigate("/teacher")}
+            onClick={() => navigate("teacher-login")}
           >
             <span className={styles.btnIcon}>👩‍🏫</span>
             <span>Кабинет учителя</span>
@@ -29,7 +29,7 @@ export default function Home() {
 
           <button
             className={`${styles.bigBtn} ${styles.studentBtn}`}
-            onClick={() => navigate("/student")}
+            onClick={() => navigate("student-login")}
           >
             <span className={styles.btnIcon}>🎓</span>
             <span>Кабинет ученика</span>

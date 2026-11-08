@@ -66,7 +66,12 @@
 .navItem:hover { background: rgba(255,255,255,0.1); color: white; }
 .navActive { background: rgba(255,255,255,0.2) !important; color: white !important; }
 
-.logoutBtn { margin-top: auto; }
+.sidebarFooter {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 
 /* ── Main ───────────────────────────────── */
 .main {
@@ -165,10 +170,9 @@
 .questionList { display: flex; flex-direction: column; gap: 12px; }
 
 .questionItem {
-  display: grid;
-  grid-template-columns: 36px 1fr auto auto;
+  display: flex;
   gap: 12px;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .questionNumber {
@@ -176,6 +180,15 @@
   font-weight: 900;
   color: #6366f1;
   min-width: 36px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.questionBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .questionText {
@@ -188,34 +201,12 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 4px;
-  grid-column: 2;
-}
-
-.questionItem {
-  grid-template-rows: auto auto;
-}
-
-.questionItem {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.questionList .questionItem {
-  display: grid;
-  grid-template-columns: 36px 1fr;
-  grid-template-rows: auto auto;
-  gap: 4px 12px;
-  align-items: start;
 }
 
 .questionActions {
   display: flex;
   gap: 6px;
   align-items: center;
-  grid-column: 2;
   margin-top: 4px;
 }
 

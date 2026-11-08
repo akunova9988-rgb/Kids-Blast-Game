@@ -1,130 +1,137 @@
+/**
+ * Firebase Firestore + localStorage fallback layer.
+ *
+ * Firestore structure:
+ *   /quiz/main          → document: { code, isActive, questions[] }
+ *   /quiz/main/students/{id} → document: { name, joinedAt, status, ... }
+ *
+ * When Firebase is not configured, localStorage mirrors the same structure.
+ */
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, get, onValue, push, update, remove } from "firebase/database";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  onSnapshot,
+  collection,
+  getDocs,
+  deleteDoc,
+  deleteField,
+} from "firebase/firestore";
 import firebaseConfig, { isFirebaseConfigured } from "./firebaseConfig";
 
-let app = null;
-let db = null;
+let firebaseApp = null;
+let firestoreDb = null;
 
 if (isFirebaseConfigured) {
   try {
-    app = initializeApp(firebaseConfig);
-    db = getDatabase(app);
+    firebaseApp = initializeApp(firebaseConfig);
+    firestoreDb = getFirestore(firebaseApp);
   } catch (e) {
     console.warn("Firebase init failed, using localStorage fallback:", e.message);
   }
 }
 
-// ── LocalStorage fallback helpers ──────────────────────────────────────────
+// ── LocalStorage helpers ───────────────────────────────────────────────────
 
-const LS_KEY = "mathquiz_data";
+const LS_SETTINGS_KEY = "mq_settings";
+const LS_STUDENTS_KEY = "mq_students";
 
-function lsRead() {
-  try {
-    return JSON.parse(localStorage.getItem(LS_KEY)) || {};
-  } catch {
-    return {};
+function lsGetSettings() {
+  try { return JSON.parse(localStorage.getItem(LS_SETTINGS_KEY)); } catch { return null; }
+}
+function lsSetSettings(data) {
+  localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(data));
+  window.dispatchEvent(new CustomEvent("ls-settings-change"));
+}
+function lsGetStudents() {
+  try { return JSON.parse(localStorage.getItem(LS_STUDENTS_KEY)) || {}; } catch { return {}; }
+}
+function lsSetStudents(data) {
+  localStorage.setItem(LS_STUDENTS_KEY, JSON.stringify(data));
+  window.dispatchEvent(new CustomEvent("ls-students-change"));
+}
+
+// ── Settings API ───────────────────────────────────────────────────────────
+
+export async function getSettings() {
+  if (firestoreDb) {
+    const snap = await getDoc(doc(firestoreDb, "quiz", "main"));
+    return snap.exists() ? snap.data() : null;
   }
+  return lsGetSettings();
 }
 
-function lsWrite(data) {
-  localStorage.setItem(LS_KEY, JSON.stringify(data));
-}
-
-function getByPath(obj, path) {
-  return path.split("/").filter(Boolean).reduce((acc, key) => acc?.[key], obj);
-}
-
-function setByPath(obj, path, value) {
-  const keys = path.split("/").filter(Boolean);
-  let cur = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    if (!cur[keys[i]] || typeof cur[keys[i]] !== "object") cur[keys[i]] = {};
-    cur = cur[keys[i]];
-  }
-  cur[keys[keys.length - 1]] = value;
-}
-
-function delByPath(obj, path) {
-  const keys = path.split("/").filter(Boolean);
-  let cur = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    if (!cur[keys[i]]) return;
-    cur = cur[keys[i]];
-  }
-  delete cur[keys[keys.length - 1]];
-}
-
-// ── Unified API ────────────────────────────────────────────────────────────
-
-export async function dbSet(path, value) {
-  if (db) {
-    await set(ref(db, path), value);
+export async function saveSettings(data) {
+  if (firestoreDb) {
+    await setDoc(doc(firestoreDb, "quiz", "main"), data, { merge: true });
   } else {
-    const data = lsRead();
-    setByPath(data, path, value);
-    lsWrite(data);
-    window.dispatchEvent(new CustomEvent("ls-change", { detail: { path } }));
+    lsSetSettings({ ...(lsGetSettings() || {}), ...data });
   }
 }
 
-export async function dbUpdate(path, value) {
-  if (db) {
-    await update(ref(db, path), value);
+export function subscribeSettings(callback) {
+  if (firestoreDb) {
+    return onSnapshot(doc(firestoreDb, "quiz", "main"), (snap) => {
+      callback(snap.exists() ? snap.data() : null);
+    });
+  }
+  const handler = () => callback(lsGetSettings());
+  handler();
+  window.addEventListener("ls-settings-change", handler);
+  return () => window.removeEventListener("ls-settings-change", handler);
+}
+
+// ── Students API ───────────────────────────────────────────────────────────
+
+export async function addStudent(id, data) {
+  if (firestoreDb) {
+    await setDoc(doc(firestoreDb, "quiz", "main", "students", id), data);
   } else {
-    const data = lsRead();
-    const existing = getByPath(data, path) || {};
-    setByPath(data, path, { ...existing, ...value });
-    lsWrite(data);
-    window.dispatchEvent(new CustomEvent("ls-change", { detail: { path } }));
+    const students = lsGetStudents();
+    students[id] = data;
+    lsSetStudents(students);
   }
 }
 
-export async function dbGet(path) {
-  if (db) {
-    const snap = await get(ref(db, path));
-    return snap.val();
+export async function updateStudent(id, data) {
+  if (firestoreDb) {
+    try {
+      await updateDoc(doc(firestoreDb, "quiz", "main", "students", id), data);
+    } catch {
+      await setDoc(doc(firestoreDb, "quiz", "main", "students", id), data, { merge: true });
+    }
   } else {
-    return getByPath(lsRead(), path) ?? null;
+    const students = lsGetStudents();
+    students[id] = { ...(students[id] || {}), ...data };
+    lsSetStudents(students);
   }
 }
 
-export async function dbPush(path, value) {
-  if (db) {
-    const r = push(ref(db, path));
-    await set(r, value);
-    return r.key;
+export async function removeStudent(id) {
+  if (firestoreDb) {
+    await deleteDoc(doc(firestoreDb, "quiz", "main", "students", id));
   } else {
-    const data = lsRead();
-    const id = `ls_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const existing = getByPath(data, path) || {};
-    setByPath(data, path, { ...existing, [id]: value });
-    lsWrite(data);
-    window.dispatchEvent(new CustomEvent("ls-change", { detail: { path } }));
-    return id;
+    const students = lsGetStudents();
+    delete students[id];
+    lsSetStudents(students);
   }
 }
 
-export async function dbRemove(path) {
-  if (db) {
-    await remove(ref(db, path));
-  } else {
-    const data = lsRead();
-    delByPath(data, path);
-    lsWrite(data);
-    window.dispatchEvent(new CustomEvent("ls-change", { detail: { path } }));
+export function subscribeStudents(callback) {
+  if (firestoreDb) {
+    return onSnapshot(collection(firestoreDb, "quiz", "main", "students"), (snap) => {
+      const students = {};
+      snap.forEach((d) => { students[d.id] = d.data(); });
+      callback(students);
+    });
   }
-}
-
-export function dbSubscribe(path, callback) {
-  if (db) {
-    const unsubscribe = onValue(ref(db, path), (snap) => callback(snap.val()));
-    return unsubscribe;
-  } else {
-    const handler = () => callback(getByPath(lsRead(), path) ?? null);
-    handler(); // initial call
-    window.addEventListener("ls-change", handler);
-    return () => window.removeEventListener("ls-change", handler);
-  }
+  const handler = () => callback(lsGetStudents());
+  handler();
+  window.addEventListener("ls-students-change", handler);
+  return () => window.removeEventListener("ls-students-change", handler);
 }
 
 export { isFirebaseConfigured };

@@ -1,35 +1,32 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { dbUpdate } from "../firebase";
+import { updateStudent } from "../firebase";
 import MathBackground from "../components/MathBackground";
 import styles from "./Quiz.module.css";
 
 const TIME_PER_QUESTION = 30;
 
 export default function Quiz() {
-  const { studentSession, questions, clearStudentSession } = useApp();
-  const navigate = useNavigate();
+  const { studentSession, quizSettings, navigate } = useApp();
+  const questions = quizSettings.questions || [];
 
-  const [current, setCurrent] = useState(0);
-  const [selected, setSelected] = useState(null);
-  const [answers, setAnswers] = useState([]);
-  const [timeLeft, setTimeLeft] = useState(TIME_PER_QUESTION);
-  const [canNext, setCanNext] = useState(false);
+  const [current, setCurrent]           = useState(0);
+  const [selected, setSelected]         = useState(null);
+  const [answers, setAnswers]           = useState([]);
+  const [timeLeft, setTimeLeft]         = useState(TIME_PER_QUESTION);
+  const [canNext, setCanNext]           = useState(false);
   const [transitioning, setTransitioning] = useState(false);
-  const [startTime] = useState(Date.now());
+  const [startTime]                     = useState(Date.now());
   const timerRef = useRef(null);
 
   useEffect(() => {
-    if (!studentSession) {
-      navigate("/student");
-    }
+    if (!studentSession) navigate("student-login");
   }, [studentSession, navigate]);
 
-  // Update student status to "playing"
+  // Set student status to "playing"
   useEffect(() => {
     if (studentSession?.id) {
-      dbUpdate(`quiz/students/${studentSession.id}`, { status: "playing" });
+      updateStudent(studentSession.id, { status: "playing" });
     }
   }, [studentSession]);
 
@@ -39,13 +36,12 @@ export default function Quiz() {
     const newAnswers = [...answers, chosenAnswer];
 
     if (current + 1 >= questions.length) {
-      // Quiz done
       const correctCount = newAnswers.filter((a, i) => a === questions[i]?.correct).length;
       const score = correctCount * 10;
       const timeSeconds = Math.round((Date.now() - startTime) / 1000);
 
       if (studentSession?.id) {
-        dbUpdate(`quiz/students/${studentSession.id}`, {
+        updateStudent(studentSession.id, {
           status: "done",
           answers: newAnswers,
           score,
@@ -55,7 +51,7 @@ export default function Quiz() {
         });
       }
 
-      navigate("/results", { state: { answers: newAnswers, questions, timeSeconds } });
+      navigate("results", { answers: newAnswers, questions, timeSeconds });
     } else {
       setTransitioning(true);
       setTimeout(() => {
@@ -72,6 +68,7 @@ export default function Quiz() {
   // Timer
   useEffect(() => {
     if (canNext) return;
+    clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setTimeLeft((t) => {
         if (t <= 1) {
@@ -86,7 +83,7 @@ export default function Quiz() {
   }, [current, canNext]);
 
   function handleSelect(idx) {
-    if (selected !== null || canNext) return;
+    if (selected !== null || (canNext && selected === null)) return;
     setSelected(idx);
     setCanNext(true);
     clearInterval(timerRef.current);
@@ -95,7 +92,7 @@ export default function Quiz() {
   if (!studentSession || !questions.length) return null;
 
   const q = questions[current];
-  const progress = ((current) / questions.length) * 100;
+  const progress = (current / questions.length) * 100;
   const timerProgress = (timeLeft / TIME_PER_QUESTION) * 100;
 
   return (
@@ -142,7 +139,7 @@ export default function Quiz() {
                 key={i}
                 className={`${styles.optionBtn} ${selected === i ? styles.optionSelected : ""} ${selected !== null && i !== selected ? styles.optionFaded : ""}`}
                 onClick={() => handleSelect(i)}
-                disabled={selected !== null || canNext && selected === null}
+                disabled={selected !== null}
               >
                 <span className={styles.optionLabel}>{String.fromCharCode(65 + i)}</span>
                 <span className={styles.optionText}>{opt}</span>
@@ -154,7 +151,7 @@ export default function Quiz() {
         {/* Next button */}
         <div className={styles.nextRow}>
           {timeLeft === 0 && selected === null && (
-            <div className={styles.timeoutMsg}>Время вышло! Переходим к следующему вопросу.</div>
+            <div className={styles.timeoutMsg}>Время вышло!</div>
           )}
           <button
             className={`btn btn-primary ${styles.nextBtn}`}

@@ -1,12 +1,10 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import MathBackground from "../components/MathBackground";
 import styles from "./TeacherLogin.module.css";
 
 export default function TeacherLogin() {
-  const { teacherLogin } = useApp();
-  const navigate = useNavigate();
+  const { teacherLogin, navigate } = useApp();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,7 +16,7 @@ export default function TeacherLogin() {
     setError("");
     await new Promise((r) => setTimeout(r, 400));
     if (teacherLogin(username, password)) {
-      navigate("/teacher/dashboard");
+      navigate("teacher-dashboard");
     } else {
       setError("Неверный логин или пароль.");
     }
@@ -29,7 +27,7 @@ export default function TeacherLogin() {
     <div className={styles.page}>
       <MathBackground />
       <div className={`card ${styles.loginCard} anim-scale-in`}>
-        <button className={styles.backBtn} onClick={() => navigate("/")}>← Назад</button>
+        <button className={styles.backBtn} onClick={() => navigate("home")}>← Назад</button>
         <div className={styles.logoArea}>
           <span className={styles.logo}>👩‍🏫</span>
           <h2>Кабинет учителя</h2>
