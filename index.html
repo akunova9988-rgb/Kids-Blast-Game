@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Математический вызов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Animated background symbols -->
+  <div class="bg-symbols" id="bgSymbols"></div>
+
+  <!-- HOME SCREEN -->
+  <div class="screen active" id="homeScreen">
+    <div class="home-card">
+      <div class="logo-icon">🧮</div>
+      <h1 class="title">МАТЕМАТИЧЕСКИЙ<br/>ВЫЗОВ</h1>
+      <p class="subtitle">Проверь свои знания и докажи,<br/>что ты настоящий математик!</p>
+
+      <div class="form-group">
+        <label for="playerName">Твоё имя</label>
+        <input
+          type="text"
+          id="playerName"
+          placeholder="Введи своё имя..."
+          maxlength="30"
+          autocomplete="off"
+        />
+      </div>
+
+      <div class="form-group">
+        <label>Уровень сложности</label>
+        <div class="difficulty-selector">
+          <button class="diff-btn active" data-level="easy">
+            <span class="diff-icon">😊</span>
+            <span class="diff-label">Лёгкий</span>
+          </button>
+          <button class="diff-btn" data-level="medium">
+            <span class="diff-icon">🤔</span>
+            <span class="diff-label">Средний</span>
+          </button>
+          <button class="diff-btn" data-level="hard">
+            <span class="diff-icon">🔥</span>
+            <span class="diff-label">Сложный</span>
+          </button>
+        </div>
+      </div>
+
+      <button class="btn-start" id="startBtn">
+        <span>Начать викторину</span>
+        <span class="btn-arrow">→</span>
+      </button>
+
+      <p class="hint-text">20 вопросов · 30 секунд на каждый</p>
+    </div>
+  </div>
+
+  <!-- QUIZ SCREEN -->
+  <div class="screen" id="quizScreen">
+    <div class="quiz-container">
+      <!-- Header bar -->
+      <div class="quiz-header">
+        <div class="header-left">
+          <span class="player-badge" id="quizPlayerName"></span>
+        </div>
+        <div class="header-center">
+          <span class="question-counter" id="questionCounter">Вопрос 1 из 20</span>
+        </div>
+        <div class="header-right">
+          <div class="score-display">
+            <span class="score-icon">⭐</span>
+            <span id="currentScore">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+
+      <!-- Timer -->
+      <div class="timer-wrap">
+        <div class="timer-ring" id="timerRing">
+          <svg viewBox="0 0 60 60">
+            <circle class="timer-bg" cx="30" cy="30" r="26"/>
+            <circle class="timer-fg" id="timerCircle" cx="30" cy="30" r="26"/>
+          </svg>
+          <span class="timer-text" id="timerText">30</span>
+        </div>
+      </div>
+
+      <!-- Question card -->
+      <div class="question-card" id="questionCard">
+        <div class="question-category" id="questionCategory">Арифметика</div>
+        <p class="question-text" id="questionText"></p>
+      </div>
+
+      <!-- Answer buttons -->
+      <div class="answers-grid" id="answersGrid"></div>
+
+      <!-- Explanation panel -->
+      <div class="explanation-panel hidden" id="explanationPanel">
+        <span class="explanation-icon">💡</span>
+        <p id="explanationText"></p>
+      </div>
+
+      <!-- Next button -->
+      <div class="next-wrap">
+        <button class="btn-next hidden" id="nextBtn">
+          Следующий вопрос <span>→</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESULTS SCREEN -->
+  <div class="screen" id="resultsScreen">
+    <div class="results-card">
+      <div class="result-trophy" id="resultTrophy">🏆</div>
+      <h2 class="result-name" id="resultPlayerName"></h2>
+      <p class="result-message" id="resultMessage"></p>
+
+      <div class="result-stats">
+        <div class="stat-box stat-correct">
+          <span class="stat-number" id="statCorrect">0</span>
+          <span class="stat-label">Правильно</span>
+        </div>
+        <div class="stat-box stat-wrong">
+          <span class="stat-number" id="statWrong">0</span>
+          <span class="stat-label">Неверно</span>
+        </div>
+        <div class="stat-box stat-score">
+          <span class="stat-number" id="statScore">0</span>
+          <span class="stat-label">Очков</span>
+        </div>
+        <div class="stat-box stat-percent">
+          <span class="stat-number" id="statPercent">0%</span>
+          <span class="stat-label">Результат</span>
+        </div>
+        <div class="stat-box stat-time">
+          <span class="stat-number" id="statTime">0:00</span>
+          <span class="stat-label">Время</span>
+        </div>
+      </div>
+
+      <!-- Score bar -->
+      <div class="score-bar-wrap">
+        <div class="score-bar" id="scoreBar"></div>
+        <span class="score-bar-label" id="scoreBarLabel">0%</span>
+      </div>
+
+      <button class="btn-replay" id="replayBtn">
+        🔄 Играть снова
+      </button>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
