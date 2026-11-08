@@ -4,10 +4,10 @@ import { useTitle } from '../nav.js';
 import { Banner, Field, Rocket, SoundToggle } from '../ui.jsx';
 
 const DEMOS = [
-  { label: 'Ms. Nova', detail: 'Teacher', username: 'ms-nova', password: 'starlight' },
-  { label: 'Luna', detail: 'Student', username: 'luna', password: 'rocket' },
-  { label: 'Kai', detail: 'Student', username: 'kai', password: 'comet' },
-  { label: 'Rio', detail: 'Student', username: 'rio', password: 'planet' },
+  { label: 'Ms. Nova', detail: 'Teacher', username: 'ms-nova' },
+  { label: 'Luna', detail: 'Student', username: 'luna' },
+  { label: 'Kai', detail: 'Student', username: 'kai' },
+  { label: 'Rio', detail: 'Student', username: 'rio' },
 ];
 
 export function Auth({ onUser }) {
@@ -43,9 +43,9 @@ export function Auth({ onUser }) {
     setBusy(true);
     setError('');
     try {
-      const data = await api('/api/auth/login', {
+      const data = await api('/api/auth/demo', {
         method: 'POST',
-        body: { username: account.username, password: account.password },
+        body: { username: account.username },
       });
       onUser(data.user);
     } catch (err) {
@@ -112,7 +112,7 @@ export function Auth({ onUser }) {
           </button>
         </form>
         <div className="demo">
-          <p>Try the demo class</p>
+          <p>Try the demo class. Tap a name.</p>
           <div className="demo-grid">
             {DEMOS.map((account) => (
               <button key={account.username} type="button" className="demo-btn" onClick={() => demo(account)} disabled={busy}>

@@ -26,18 +26,13 @@ npm run build
 npm start
 ```
 
-## Demo logins
-
-| Who | Username | Password |
-| --- | --- | --- |
-| Ms. Nova, teacher | `ms-nova` | `starlight` |
-| Luna, student | `luna` | `rocket` |
-| Kai, student | `kai` | `comet` |
-| Rio, student | `rio` | `planet` |
+## Demo class
 
 Class name: **Room 2 Rockets**. Join code: **STAR2**.
 
-The sign-in screen also has one-tap demo buttons. Rio has not played yet. Luna and Kai already have scores on Easy Addition, so the teacher results are not empty.
+On the sign-in screen, tap **Ms. Nova** (teacher), **Luna**, **Kai**, or **Rio**. Those buttons open the demo class. Rio has not played yet. Luna and Kai already have scores on Easy Addition, so the teacher results are not empty.
+
+A new student or teacher can still create an account and choose their own password. That password is stored only as a hash.
 
 ## Teacher flow
 

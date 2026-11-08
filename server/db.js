@@ -1,5 +1,10 @@
+import { randomBytes } from 'node:crypto';
 import { hashPassword, nowIso } from './logic.js';
 import { openStore } from './sql.js';
+
+function secretHash() {
+  return hashPassword(randomBytes(24).toString('base64url'));
+}
 
 const SETS = [
   {
@@ -105,11 +110,10 @@ async function seed(db) {
   if (Number(count.n) > 0) return;
 
   const created = nowIso();
-  // Public demo class words. The sign-in screen shows these same words.
-  const teacherPass = hashPassword('starlight');
-  const lunaPass = hashPassword('rocket');
-  const kaiPass = hashPassword('comet');
-  const rioPass = hashPassword('planet');
+  const teacherPass = secretHash();
+  const lunaPass = secretHash();
+  const kaiPass = secretHash();
+  const rioPass = secretHash();
 
   await db.transaction(async (tx) => {
     const teacherId = await tx.insert(
