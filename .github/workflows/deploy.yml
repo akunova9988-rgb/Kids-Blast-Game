@@ -30,6 +30,10 @@ jobs:
           path: dist
 
   deploy:
+    # Only deploy from the default branch or when triggered manually.
+    # GitHub Pages must be enabled in Settings → Pages → Source: GitHub Actions
+    # before this job can succeed.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -37,7 +41,5 @@ jobs:
     needs: build
     steps:
       - uses: actions/configure-pages@v4
-        with:
-          enablement: true
       - id: deployment
         uses: actions/deploy-pages@v4
