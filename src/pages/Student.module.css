@@ -1,0 +1,61 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  position: relative;
+}
+
+.joinCard {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 440px;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: #6366f1;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 24px;
+  transition: transform 0.2s;
+}
+.backBtn:hover { transform: translateX(-3px); }
+
+.logoArea {
+  text-align: center;
+  margin-bottom: 28px;
+}
+.logo {
+  font-size: 3.5rem;
+  display: block;
+  margin-bottom: 10px;
+}
+.logoArea h2 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  margin-bottom: 4px;
+}
+.logoArea p {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.form { display: flex; flex-direction: column; }
+
+.error {
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+}

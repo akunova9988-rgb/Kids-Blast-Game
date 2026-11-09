@@ -1,52 +1,247 @@
-# 🧮 Math Quiz – Интерактивная математическая викторина
+# 🧮 Math Quiz — Интерактивная математическая викторина
 
-A fully-featured interactive Math Quiz web application for teachers and students, built with pure HTML/CSS/JavaScript using `localStorage` + `BroadcastChannel` for real-time multi-tab communication (Firebase-ready).
+Веб-приложение для проведения математических викторин в классе. Учитель управляет викториной, ученики подключаются по коду и проходят тест в реальном времени.
 
-## Pages
+---
 
-| File | Description |
-|---|---|
-| `index.html` | Home page – choose Teacher or Student |
-| `teacher.html` | Teacher cabinet (login protected) |
-| `student.html` | Student cabinet – enter name & quiz code |
+## 🚀 Быстрый старт (без Firebase)
 
-## Usage
+Приложение работает **без Firebase** прямо из коробки — данные хранятся в `localStorage` браузера.
 
-Open `index.html` in a browser (no server required – runs from the filesystem).
-
-### Teacher login
-- **Username:** `teacher`
-- **Password:** `Math2026!`
-
-### Default quiz code
-- `MATH2026` (editable in the teacher dashboard)
-
-## Features
-
-- **15 default math questions** (algebra, geometry, statistics, calculus)
-- **30-second countdown timer** per question with animated circular progress
-- **4-option answer cards** (A/B/C/D) with keyboard shortcuts
-- **Real-time leaderboard** updated as students finish
-- **Question editor** – add, edit, delete questions
-- **Confetti celebration** on results screen
-- **Grade system** in Russian (Отлично / Хорошо / etc.)
-- **Responsive** – mobile, tablet, desktop
-- **Multi-tab simulation** – open teacher in one tab, students in others; state syncs via `BroadcastChannel` + `localStorage`
-
-## Color palette
-
-| Token | Hex |
-|---|---|
-| Primary (purple) | `#6C63FF` |
-| Secondary (blue) | `#4FC3F7` |
-| Background | `#F8F9FF` |
-
-## Firebase (production upgrade)
-
-The app uses `localStorage` + `BroadcastChannel` as a working demo backend.  
-To upgrade to Firebase Realtime Database for true multi-device support, replace the `loadState()` / `saveState()` helpers with Firebase read/write calls and the `BroadcastChannel` listeners with `onValue()` subscriptions.
-
-```html
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+```bash
+npm install
+npm run dev
+# Откройте http://localhost:5173
 ```
+
+> Для полноценной работы с несколькими учениками одновременно необходимо настроить Firebase (см. ниже).
+
+---
+
+## 🔥 Настройка Firebase
+
+### Шаг 1 — Создать проект Firebase
+
+1. Перейдите на [https://console.firebase.google.com](https://console.firebase.google.com)
+2. Нажмите **«Создать проект»** (или «Add project»)
+3. Введите название проекта, например `math-quiz`
+4. Аналитику можно отключить
+5. Нажмите **«Создать проект»** и дождитесь завершения
+
+### Шаг 2 — Включить Firestore Database
+
+1. В боковом меню выберите **Создание → Firestore Database**
+2. Нажмите **«Создать базу данных»**
+3. Выберите режим **«Начать в тестовом режиме»** _(все могут читать и писать — подходит для классного использования)_
+4. Выберите регион (ближайший к вам, например `europe-west3`) и нажмите **«Готово»**
+
+> **Примечание:** Тестовый режим открыт 30 дней. Для продакшна настройте правила безопасности Firestore.
+
+### Шаг 3 — Включить Firebase Hosting
+
+1. В боковом меню выберите **Создание → Hosting**
+2. Нажмите **«Начало работы»**
+3. Следуйте инструкциям на экране (установка `firebase-tools` описана в Шаге 6)
+
+### Шаг 4 — Скопировать конфигурацию в проект
+
+1. В Firebase Console откройте **«Настройки проекта»** (шестерёнка ⚙️ → «Настройки проекта»)
+2. Прокрутите вниз до раздела **«Ваши приложения»**
+3. Нажмите **«Добавить приложение»** → выберите **Web (</> )** → введите имя и нажмите **«Зарегистрировать»**
+4. Скопируйте объект `firebaseConfig`
+5. Откройте файл `src/firebaseConfig.js` и замените `YOUR_*` значениями из консоли:
+
+```js
+// src/firebaseConfig.js
+const firebaseConfig = {
+  apiKey: "AIzaSy...",
+  authDomain: "math-quiz-abc.firebaseapp.com",
+  projectId: "math-quiz-abc",
+  storageBucket: "math-quiz-abc.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abc123"
+};
+```
+
+6. Также откройте `.firebaserc` и замените `YOUR_FIREBASE_PROJECT_ID` на ID вашего проекта:
+
+```json
+{
+  "projects": {
+    "default": "math-quiz-abc"
+  }
+}
+```
+
+### Шаг 5 — Запустить локально
+
+```bash
+npm install
+npm run dev
+```
+
+Откройте [http://localhost:5173](http://localhost:5173) — все данные теперь синхронизируются через Firestore в реальном времени.
+
+---
+
+## 🌐 Публикация на Firebase Hosting
+
+После настройки Firebase вы можете опубликовать приложение на **единую общую ссылку** для всего класса.
+
+### Шаг 6 — Установить Firebase CLI и задеплоить
+
+```bash
+# 1. Установить Firebase CLI (один раз)
+npm install -g firebase-tools
+
+# 2. Войти в аккаунт Google
+firebase login
+
+# 3. Инициализировать хостинг (только первый раз)
+firebase init hosting
+# → Выберите ваш проект
+# → Public directory: dist
+# → Single-page app: Yes
+# → Overwrite index.html: No
+
+# 4. Собрать приложение
+npm run build
+
+# 5. Опубликовать
+firebase deploy
+```
+
+### Шаг 7 — Найти ссылку после деплоя
+
+После успешного деплоя в терминале появится:
+
+```
+✔  Deploy complete!
+
+Project Console: https://console.firebase.google.com/project/math-quiz-abc/overview
+Hosting URL: https://math-quiz-abc.web.app
+```
+
+**Ссылка `Hosting URL`** — это и есть адрес вашего приложения. Поделитесь им с учениками!
+
+---
+
+## 📖 Как пользоваться приложением
+
+### Для учителя
+
+1. Откройте приложение и нажмите **«Кабинет учителя»**
+2. Войдите: логин `teacher`, пароль `Math2026!`
+3. В разделе **«Управление»**:
+   - Измените код доступа при необходимости (по умолчанию: `MATH2026`)
+   - Запустите или остановите викторину
+4. В разделе **«Вопросы»** можно редактировать, добавлять и удалять вопросы
+5. Следите за учениками в разделе **«Ученики»** (в реальном времени)
+6. Смотрите таблицу лидеров в разделе **«Результаты»** (обновляется автоматически)
+
+### Для ученика
+
+1. Откройте **то же самое** приложение (по той же ссылке)
+2. Нажмите **«Кабинет ученика»**
+3. Введите имя и код, который дал учитель
+4. Пройдите викторину — 15 вопросов, 30 секунд на каждый
+5. По окончании увидите результат и оценку
+
+---
+
+## 🏗 Структура проекта
+
+```
+src/
+├── App.jsx                  # Главный компонент (навигация через состояние)
+├── main.jsx                 # Точка входа
+├── index.css                # Глобальные стили
+├── firebaseConfig.js        # Конфигурация Firebase (вставьте свои данные)
+├── firebase.js              # Firestore + localStorage API
+├── questions.js             # 15 вопросов по умолчанию
+├── context/
+│   └── AppContext.jsx       # Глобальное состояние приложения
+├── components/
+│   └── MathBackground.jsx   # Анимированные символы на фоне
+└── pages/
+    ├── Home.jsx             # Главная страница
+    ├── TeacherLogin.jsx     # Вход для учителя
+    ├── TeacherDashboard.jsx # Панель учителя (4 вкладки)
+    ├── Student.jsx          # Вход для ученика
+    ├── Quiz.jsx             # Прохождение викторины
+    └── Results.jsx          # Страница результатов
+```
+
+## 🗄 Структура данных Firestore
+
+```
+/quiz/main                   ← Настройки викторины
+  code: "MATH2026"
+  isActive: true
+  questions: [...]
+
+/quiz/main/students/{id}     ← Данные каждого ученика
+  name: "Иван"
+  joinedAt: 1700000000000
+  status: "waiting" | "playing" | "done"
+  answers: [2, 0, 3, ...]
+  score: 120
+  correctCount: 12
+  timeSeconds: 245
+  finishedAt: 1700000300000
+```
+
+---
+
+## 🌍 Публикация на GitHub Pages
+
+Альтернативный (бесплатный) способ опубликовать приложение прямо из GitHub — без Firebase CLI.
+
+### Шаг 1 — Включить GitHub Pages
+
+1. Откройте репозиторий на GitHub
+2. Перейдите в **Settings → Pages**
+3. В разделе **Source** выберите **GitHub Actions**
+4. Сохраните
+
+### Шаг 2 — Запустить деплой
+
+Деплой запускается **автоматически** при каждом push в ветку `cursor/math-quiz-app-1f97` или `main` (настроено в `.github/workflows/deploy.yml`).
+
+Чтобы запустить вручную:
+1. Откройте вкладку **Actions** в репозитории
+2. Выберите **Deploy to GitHub Pages**
+3. Нажмите **Run workflow**
+
+### Шаг 3 — Найти ссылку
+
+После успешного деплоя (зелёная галочка в Actions) приложение будет доступно по адресу:
+
+```
+https://akunova9988-rgb.github.io/Kids-Blast-Game/
+```
+
+> **Примечание:** При использовании GitHub Pages данные сохраняются в `localStorage` браузера (на одном устройстве). Для работы нескольких учеников одновременно необходимо настроить Firebase Firestore (см. раздел выше).
+
+---
+
+## ⚙️ Скрипты
+
+| Команда | Описание |
+|---------|----------|
+| `npm run dev` | Запустить локальный сервер разработки |
+| `npm run build` | Собрать приложение для продакшна (в папку `dist/`) |
+| `npm run preview` | Предпросмотр собранного приложения |
+| `firebase deploy` | Опубликовать на Firebase Hosting |
+
+---
+
+## 🎯 Оценки
+
+| Правильных ответов | Оценка |
+|---|---|
+| 13–15 | Отлично! 🌟 |
+| 10–12 | Очень хорошо! 🎉 |
+| 7–9   | Хорошо! 👍 |
+| 4–6   | Нужно ещё потренироваться. 📚 |
+| 0–3   | Попробуй ещё раз! 💪 |
